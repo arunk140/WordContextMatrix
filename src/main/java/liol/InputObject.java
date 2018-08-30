@@ -1,3 +1,5 @@
+package main.java.liol;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;

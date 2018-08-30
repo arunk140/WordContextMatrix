@@ -1,3 +1,5 @@
+package main.java.liol;
+
 import cmu.arktweetnlp.Twokenize;
 
 import com.yahoo.labs.samoa.instances.*;

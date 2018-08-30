@@ -83,3 +83,5 @@ fabric.properties
 
 *.iml
 *.idea/
+
+src/main/data/*

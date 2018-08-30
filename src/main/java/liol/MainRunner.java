@@ -1,3 +1,5 @@
+package main.java.liol;
+
 import moa.core.TimingUtils;
 
 import java.io.BufferedReader;

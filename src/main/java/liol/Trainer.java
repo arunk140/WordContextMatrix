@@ -1,9 +1,12 @@
+package main.java.liol;
+
 import com.yahoo.labs.samoa.instances.Instance;
 import com.yahoo.labs.samoa.instances.InstancesHeader;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import moa.classifiers.Classifier;
 import moa.classifiers.functions.SGD;
 import moa.core.TimingUtils;
+
 
 /**
  * <h1>Handles the training and maintenance around the classifier and the lexicon</h1>
