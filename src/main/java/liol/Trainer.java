@@ -7,7 +7,6 @@ import moa.classifiers.Classifier;
 import moa.classifiers.functions.SGD;
 import moa.core.TimingUtils;
 
-
 /**
  * <h1>Handles the training and maintenance around the classifier and the lexicon</h1>
  *
@@ -31,6 +30,7 @@ public class Trainer {
     this.trainTestMap = new Object2ObjectOpenHashMap<>();
     this.model = new SGD();
     ((SGD)model).resetLearningImpl();
+    ((SGD) model).setLossFunction(1); // hinge/log/squared
   }
   
   /**
