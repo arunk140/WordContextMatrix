@@ -18,7 +18,7 @@ public class MainRunner {
   /**
    * This method will call the filter software and then feeds the output into an SGD classifier
    *
-   * @param args Takes as arugments the input file name, output file name, vocabulary size, context
+   * @param args Takes as arugments the input file name, vocabulary size, context
    *             size and window size.
    * @return nothing
    * @exception IllegalArgumentException on arguments error.
@@ -27,10 +27,10 @@ public class MainRunner {
   public static void main(String[] args) {
     System.err.println(System.getProperty("user.dir"));
     try {
-      if (args.length != 6) {
+      if (args.length != 7) {
         
-        System.err.println("Usage: [SeedLexicon][InputFileName][OutputFileName]" +
-            "[VocabSize][ContextSize][WindowSize]");
+        System.err.println("Usage: [SeedLexicon][InputFileName]" +
+            "[VocabSize][ContextSize][WindowSize][SketchingMethod][WeightingMethod]");
         throw (new IllegalArgumentException());
       } else { // Success so now we do some pre-processing before feeding it into the SGD learner
         
@@ -47,7 +47,7 @@ public class MainRunner {
             throw new IllegalArgumentException("Please use integers to describe parameters.");
           }
         }
-        runner.run(args[2], params, seedLex, inStream);
+        runner.run(args[2], params, seedLex, inStream, Integer.parseInt(args[5]), Integer.parseInt(args[6]));
       }
     } catch (Exception ex) {
       ex.printStackTrace();
@@ -70,12 +70,11 @@ public class MainRunner {
   
   /**
    * Runs the filter software and eventually the classifiers.
-   * @param outName The name of the output file
    * @param params A list of the parameters for the word context matrix
    * @param seedLex The lexicon of known words and their polarities.
    */
   private void run(String outName, ArrayList<Integer> params, InputObject seedLex,
-                   InputObject inputStream) {
+                   InputObject inputStream, int sketch, int weight) {
     
     boolean preceiseCPUTiming = TimingUtils.enablePreciseTiming();
     long evaluateStartTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
@@ -85,7 +84,15 @@ public class MainRunner {
     trainer.Initialize(seedLex);
     
     WordContextMatrix wcm = new WordContextMatrix(params.get(0), params.get(1),
-        params.get(2), inputStream, outName, trainer);
+        params.get(2), inputStream, trainer);
+
+    // Set the sketching method
+    wcm.setSketchingMethod(sketch);
+    
+    // Set the weighting method
+    wcm.setWeightingMethod(weight);
+    
+    // Begin
     wcm.buildMatrix();
   }
 }

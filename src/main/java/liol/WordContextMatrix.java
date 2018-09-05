@@ -9,10 +9,16 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
-import java.util.ArrayList;
+import java.security.InvalidParameterException;
+import java.util.Collections;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
+
+import java.lang.Math;
+
+import static java.lang.Double.max;
 
 /**
  * <h1>Handles a word-context matrix</h1>
@@ -29,15 +35,17 @@ public class WordContextMatrix {
 	protected Object2ObjectMap<String, WordRep> vocabulary;
 	protected int processedInstances;
 	
+	private int tokensSeen;
 	private Object2IntMap<String> contextWordIndices;
 	private int nextPos;
 	private int vocabSize;
 	private int contextSize;
 	private int windowSize;
 	private InputObject inObj;
-	private long numTokens;
-	private String outputFileName;
 	private Trainer trainer;
+  boolean isNormalized;
+  boolean isPPMI;
+  boolean isHashing;
   
   /**
    * The constructor. Initializing the WCM.
@@ -45,20 +53,22 @@ public class WordContextMatrix {
    * @param cSize The context vector size
    * @param wSize The window size
    * @param inStream The input stream
-   * @param outFile The name of the output file to write any results to.
    */
-	public WordContextMatrix(int vSize, int cSize, int wSize, InputObject inStream, String outFile, Trainer trainer) {
+	public WordContextMatrix(int vSize, int cSize, int wSize, InputObject inStream, Trainer trainer) {
 		this.windowSize = wSize;
 		this.vocabSize = vSize;
 		this.contextSize = cSize;
     // The input stream
 		this.inObj = inStream;
-		this.numTokens = 0;
-		this.outputFileName = outFile;
 		this.vocabulary = new Object2ObjectOpenHashMap<>();
 		this.contextWordIndices = new Object2IntOpenHashMap<>();
 		this.nextPos = 1;
 		this.trainer = trainer;
+		
+		// Set the weighting style (default none)
+    setWeightingMethod(0);
+    // Set the sketching style (default none)
+    setSketchingMethod(0);
 	}
   
   /**
@@ -73,11 +83,9 @@ public class WordContextMatrix {
    * @param wr The word representations
    * @return The sparse instance
    */
-	public SparseInstance SparseCreator(WordRep wr) {
+	private SparseInstance SparseCreator(WordRep wr) {
 		double weight = 1;
-		// This should be only the non-zero values in the word rep
-		double[] attributeValues = new double[wr.contextDictionary.size() + 1];
-		
+		Double[] attributeValues = new Double[wr.contextDictionary.size() + 1];
 		int[] indexValues = new int[wr.contextDictionary.size() + 1];
 		
     List<Words> contextWordList = new ArrayList<>();
@@ -102,11 +110,62 @@ public class WordContextMatrix {
     }
     
     // Set the class position to be the last one
-		indexValues[indexValues.length - 1] = contextSize; // Remember that it's 0 indexed!
+    indexValues[indexValues.length - 1] = contextSize; // Remember that it's 0 indexed!
     attributeValues[indexValues.length - 1] = Double.NaN;
     
-    return new SparseInstance(weight, attributeValues, indexValues, wr.contextSize + 1);
+    // Remove the assignment when the if statements are complete
+    double[] attribValues;
+    
+    if (isNormalized && !isPPMI) {
+      attribValues = normalizer(attributeValues);
+    } else if (isPPMI && !isNormalized) {
+      attribValues = PMIzer(wr, attributeValues);
+    } else {
+      attribValues = unboxer(attributeValues);
+    }
+    
+    return new SparseInstance(weight, attribValues, indexValues, wr.contextSize + 1);
 	}
+  
+  /**
+   * Sets the weighting method
+   * @param methodNumber 0 = none, 1 = normalized, 2 = PPMI
+   */
+  public void setWeightingMethod(int methodNumber) {
+    switch (methodNumber) {
+      case 0:
+        this.isNormalized = false;
+        this.isPPMI = false;
+        break;
+      case 1:
+        this.isNormalized = true;
+        this.isPPMI = false;
+        break;
+      case 2:
+        this.isNormalized = false;
+        this.isPPMI = true;
+        break;
+      default:
+        throw new InvalidParameterException();
+    }
+  }
+  
+  /**
+   * Sets the sketching method
+   * @param methodNumber 0 = none, 1 = hashing
+   */
+  public void setSketchingMethod(int methodNumber) {
+	  switch (methodNumber) {
+      case 0:
+        this.isHashing = false;
+        break;
+      case 1:
+        this.isHashing = true;
+        break;
+      default:
+        throw new InvalidParameterException();
+    }
+  }
 	
   /**
    * Builds the matrix of sparse vectors by incrementally updating the word vectors.
@@ -123,8 +182,8 @@ public class WordContextMatrix {
 			line = line.toLowerCase();
 			// Tokenize the line
 			List<String> tokens = Twokenize.tokenizeRawTweetText(line);
-			// Update token count
-			this.numTokens += tokens.size();
+
+			tokensSeen += tokens.size();
       
       System.err.println(line);
 			
@@ -158,7 +217,7 @@ public class WordContextMatrix {
         //System.err.println(focusWord.getWord() + " " + sprseFocus.toString());
         
         // If the word has been seen a significant (10) number of times, send it to be classified.
-        if (focusWord.numTweets >= 1) {
+        if (focusWord.numTweets >= 10) {
         	trainer.SetHeader(instHeader);
           trainer.Learn(focusWord.getWord(), sprseFocus);
         }
@@ -234,6 +293,76 @@ public class WordContextMatrix {
     }
   }
   
+  /**
+   * Unboxes a Double array to its primitive form.
+   * @param attribs The Double array (array of boxed doubles)
+   * @return An unboxed primitive double array
+   */
+  private double[] unboxer(Double[] attribs) {
+    double[] d = new double[attribs.length];
+    for (int i = 0; i < attribs.length; i++) {
+      d[i] = attribs[i];
+    }
+    return d;
+  }
+  
+  /**
+   * Converts a Double array into a normalized double array
+   * @param attribs The Double array of attribute values
+   * @return A normalized double array
+   */
+  private double[] normalizer(Double[] attribs) {
+      double[] normalizedAttribs = new double[attribs.length];
+      double max = Collections.max(Arrays.asList(attribs));
+      
+      for (int i = 0; i < attribs.length; i++) {
+				normalizedAttribs[i] = attribs[i] / max;
+      }
+      
+    return normalizedAttribs;
+	}
+  
+  /**
+   * Converts a Double array into a normalized double array but ignores the presence of unknown
+   * words.
+   * @param attribs The Double array of attribute values
+   * @param indexes The index
+   * @return A normalized double array
+   */
+	private double[] normalizerIgnUnk(Double[] attribs, int[] indexes) {
+    double[] normalizedAttribs = new double[attribs.length];
+    // If the unknown word is in the attribute array let it have no significance
+    for (int i : indexes) {
+      if (i == 0) {
+        attribs[0] = (double) 0;
+      }
+    }
+    double max = Collections.max(Arrays.asList(attribs));
+    for (int i = 0; i < attribs.length; i++) {
+      normalizedAttribs[i] = attribs[i] / max;
+    }
+    
+    return normalizedAttribs;
+  }
+	
+	/**
+	 * Converts a Double array into a double array of PMI values
+	 * @param attribs The Double array of attribute values
+	 * @return A PMI'd double array
+	 */
+	private double[] PMIzer(WordRep wr, Double[] attribs) {
+		double[] PMIAttribs = new double[attribs.length];
+    for (int i = 0; i < attribs.length; i++) {
+      int contextWordCount = vocabulary.get(attribs[i]).numTweets;
+      double pmiRes = (attribs[i] * tokensSeen) / (wr.numTweets * contextWordCount);
+      // Log base 2
+      double res = Math.log(pmiRes) / Math.log(2);
+      PMIAttribs[i] = max(0.0, res);
+    }
+
+    return PMIAttribs;
+  }
+ 
 	private class WordRep {
 		String word;
 		double polarity;
