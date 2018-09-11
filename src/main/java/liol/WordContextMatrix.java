@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidParameterException;
 import java.util.Collections;
 import java.util.Arrays;
@@ -176,6 +177,8 @@ public class WordContextMatrix {
 	public void buildMatrix() {
 		String line;
 		
+		System.err.println("Program started...");
+		
 		while((line = inObj.getNextInstance()) != null ) {
 		  processedInstances++;
 		  
@@ -183,9 +186,9 @@ public class WordContextMatrix {
 			// Tokenize the line
 			List<String> tokens = Twokenize.tokenizeRawTweetText(line);
 
-			tokensSeen += tokens.size();
+			tokensSeen += tokens.size(); // For PPMI among other things
       
-      System.err.println(line);
+      //System.err.println(line);
 			
 			// Build the window
 			for (int i = 0; i < tokens.size() - 1; i++) {
@@ -196,17 +199,27 @@ public class WordContextMatrix {
 				WordRep focusWord = setFocusWord(tokens.get(i));
 				
 				// Update Context
-        for (String word : window) {
-          if (!contextWordIndices.containsKey(word) && contextWordIndices.size() < contextSize) {
-            addToContextWordIndices(word);
+        if (!isHashing) {
+          for (String word : window) {
+            if (!contextWordIndices.containsKey(word) && contextWordIndices.size() < contextSize) {
+              addToContextWordIndices(word);
+            }
+            if (!contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize && !word.equals(focusWord.getWord()) ||
+                focusWord.equals("unk") && !contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize) {
+              focusWord.addToContext("unk");
+            } else if (!word.equals(focusWord.getWord())) {
+              focusWord.addToContext(word);
+            }
           }
-          if (!contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize && !word.equals(focusWord.getWord()) ||
-              focusWord.equals("unk") && !contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize) {
-            focusWord.addToContext("unk");
-          } else if (!word.equals(focusWord.getWord())) {
-            focusWord.addToContext(word);
+        } else if (isHashing) {
+          for (String word : window) {
+            if (!word.equals(focusWord.getWord())) {
+              int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
+              // Increment the binId in the context map.
+            }
           }
         }
+        
         
 				focusWord.incrementTweets();
         //masterCtxChecker(); // Check that the context map is correct
@@ -222,7 +235,7 @@ public class WordContextMatrix {
           trainer.Learn(focusWord.getWord(), sprseFocus);
         }
 			}
-			System.err.println();
+			//System.err.println();
 		}
 		System.err.println("Program ran to completion");
 	}
@@ -362,7 +375,27 @@ public class WordContextMatrix {
 
     return PMIAttribs;
   }
- 
+  
+  /**
+   * Hashes a string (context word) and returns its hash.
+   * @param key the byte array of the word
+   * @return Int result of hashing the byte array rep of the word
+   */
+  private int jenkinsHash(byte[] key) {
+//	  byte[] key = contextWord.getBytes(StandardCharsets.UTF_8);
+	  int i = 0;
+	  int hash = 0;
+	  while (i != (byte)key.length) {
+	    hash += key[i++];
+	    hash += hash << 10;
+	    hash ^= hash >> 6;
+    }
+    hash += hash << 3;
+	  hash ^= hash >> 11;
+	  hash += hash << 15;
+	  return hash;
+  }
+  
 	private class WordRep {
 		String word;
 		double polarity;

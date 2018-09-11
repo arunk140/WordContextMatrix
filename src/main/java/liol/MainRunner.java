@@ -40,14 +40,14 @@ public class MainRunner {
         InputObject seedLex = new InputObject(args[0]);
         InputObject inStream = new InputObject(args[1]);
         
-        for (int i = 3; i < 6; i++) {
+        for (int i = 2; i < 5; i++) {
           if (TryParse(args[i])) {
             params.add(Integer.parseInt(args[i]));
           } else {
             throw new IllegalArgumentException("Please use integers to describe parameters.");
           }
         }
-        runner.run(args[2], params, seedLex, inStream, Integer.parseInt(args[5]), Integer.parseInt(args[6]));
+        runner.run(seedLex, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]));
       }
     } catch (Exception ex) {
       ex.printStackTrace();
@@ -70,11 +70,14 @@ public class MainRunner {
   
   /**
    * Runs the filter software and eventually the classifiers.
-   * @param params A list of the parameters for the word context matrix
+   * @param params A list of the parameters for the word context matrix (vocab size, context size,
+   *               window size).
    * @param seedLex The lexicon of known words and their polarities.
+   * @param sketch The sketching choice
+   * @param weight The weighting choice
    */
-  private void run(String outName, ArrayList<Integer> params, InputObject seedLex,
-                   InputObject inputStream, int sketch, int weight) {
+  private void run(InputObject seedLex, InputObject inputStream, ArrayList<Integer> params,
+                   int sketch, int weight) {
     
     boolean preceiseCPUTiming = TimingUtils.enablePreciseTiming();
     long evaluateStartTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
@@ -82,6 +85,8 @@ public class MainRunner {
     // Read in the lexicon and give it to the trainer.
     Trainer trainer = new Trainer(evaluateStartTime);
     trainer.Initialize(seedLex);
+    //System.err.println("Vocab size: " + params.get(0) + " Context size: " + params.get(1) +
+    // " Window size: " + params.get(2));
     
     WordContextMatrix wcm = new WordContextMatrix(params.get(0), params.get(1),
         params.get(2), inputStream, trainer);

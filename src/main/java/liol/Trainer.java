@@ -5,7 +5,12 @@ import com.yahoo.labs.samoa.instances.InstancesHeader;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import moa.classifiers.Classifier;
 import moa.classifiers.functions.SGD;
+import moa.core.Example;
+import moa.core.InstanceExample;
 import moa.core.TimingUtils;
+import moa.core.Utils;
+import moa.evaluation.BasicClassificationPerformanceEvaluator;
+import moa.evaluation.WindowClassificationPerformanceEvaluator;
 
 /**
  * <h1>Handles the training and maintenance around the classifier and the lexicon</h1>
@@ -23,6 +28,13 @@ public class Trainer {
   private Object2ObjectOpenHashMap<String, String> wordPolarityMap;
   private Object2ObjectOpenHashMap<String, String> trainTestMap;
   private InstancesHeader header;
+  private BasicClassificationPerformanceEvaluator evaluator;
+  
+  private int queryCounter;
+  private int TP;
+  private int TN;
+  private int FP;
+  private int FN;
   
   public Trainer(long startTime) {
     this.evaluateStartTime = startTime;
@@ -31,6 +43,9 @@ public class Trainer {
     this.model = new SGD();
     ((SGD)model).resetLearningImpl();
     ((SGD) model).setLossFunction(1); // hinge/log/squared
+    evaluator = new WindowClassificationPerformanceEvaluator();
+    evaluator.reset();
+    queryCounter = 0;
   }
   
   /**
@@ -51,7 +66,8 @@ public class Trainer {
       }
       
       // TODO find a way of doing this while keeping the training and testing distributions even
-      if (processed % 2 == 0) {
+      // Used python to do this...
+      if (processed < 1238) {
         trainTestMap.put(tokens[0], "train");
       } else {
         trainTestMap.put(tokens[0], "test");
@@ -77,20 +93,46 @@ public class Trainer {
    * @param inst The instance representation of the word.
    */
   public void Learn(String word, Instance inst) {
-    // model.setModelContext(header);
+    //System.err.println(word + ": " + inst.toString());
     // If we know the word, otherwise we ignore it and assume that we haven't seen it.
     if (wordPolarityMap.containsKey(word)) {
-
+      
+      // Assign the instance its class
+      SetInstanceClass(word, inst);
+      
+      double[] prediction = model.getVotesForInstance(inst);
       if (trainTestMap.get(word).equals("train")) {
-        model.trainOnInstance(inst);
+        ((SGD)model).trainOnInstance(inst);
       } else { // The learner is to test this one
-        if (model.correctlyClassifies(inst)) {
+        /*if (((SGD)model).correctlyClassifies(inst)) {
           correctlyPredicted++;
+        }*/
+        if (Utils.maxIndex(prediction) == (int)inst.classValue()) {
+          correctlyPredicted++;
+          if ((int) inst.classValue() == 0) {
+            TN++;
+          } else {
+            TP++;
+          }
+        }
+        // Else update the false numbers
+        else {
+          if (Utils.maxIndex(prediction) == 1) {
+            FP++;
+          } else {
+            FN++;
+          }
         }
       }
-
+      
+      //evaluator.addResult((Example)inst, prediction);
       samplesSeen++;
-      QueryAccuracy();
+      queryCounter++;
+      if (queryCounter == 10000) {
+        System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+ " " + Utils.maxIndex(prediction));
+        QueryAccuracy();
+        queryCounter = 0;
+      }
     }
   }
   
@@ -98,6 +140,8 @@ public class Trainer {
    * Prints the current accuracy of the classifier and the time that has elapsed since the start.
    */
   public void QueryAccuracy() {
+    //evaluator.getPerformanceMeasurements();
+    //System.err.println(evaluator.getFractionCorrectlyClassified());
     double accuracy = 100.0D * (double)this.correctlyPredicted / (double)this.samplesSeen;
     double time = TimingUtils.nanoTimeToSeconds(TimingUtils.getNanoCPUTimeOfCurrentThread() - this.evaluateStartTime);
     System.out.println(this.samplesSeen + " instances processed with " + accuracy + "% accuracy in " + time + " seconds.");
