@@ -85,3 +85,4 @@ fabric.properties
 *.idea/
 
 src/main/data/*
+src/main/resources/*
