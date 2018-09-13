@@ -3,6 +3,7 @@ package main.java.liol;
 import moa.core.TimingUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
  * <h1>Build a word-context matrix before running a learner on the sparse word vectors!</h1>
@@ -31,6 +32,7 @@ public class MainRunner {
         
         System.err.println("Usage: [SeedLexicon][InputFileName]" +
             "[VocabSize][ContextSize][WindowSize][SketchingMethod][WeightingMethod]");
+        System.err.println("Your input: " + Arrays.toString(args));
         throw (new IllegalArgumentException());
       } else { // Success so now we do some pre-processing before feeding it into the SGD learner
         

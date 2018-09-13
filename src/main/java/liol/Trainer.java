@@ -12,6 +12,11 @@ import moa.core.Utils;
 import moa.evaluation.BasicClassificationPerformanceEvaluator;
 import moa.evaluation.WindowClassificationPerformanceEvaluator;
 
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
+
+import static java.lang.Double.NaN;
+
 /**
  * <h1>Handles the training and maintenance around the classifier and the lexicon</h1>
  *
@@ -129,11 +134,13 @@ public class Trainer {
       queryCounter++;
       samplesSeen++;
   
-      if (queryCounter == 10000) {
+      if (queryCounter == 50000) {
+        DecimalFormat df = new DecimalFormat("#.####");
+        df.setRoundingMode(RoundingMode.CEILING);
         System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
             " " + Utils.maxIndex(prediction) + "\n TP: " + TP + " FP: " + FP + "\n TN: " + TN +
-            " FN: " + FN + "\n F1: " + getF1Score() + " Precision: " + getPrecision() +
-            " Recall: " + getRecall());
+            " FN: " + FN + "\n F1: " + df.format(getF1Score()) + "\n Precision: " +
+            df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()));
         QueryAccuracy();
         queryCounter = 0;
       }
@@ -180,7 +187,8 @@ public class Trainer {
    * @return the F1 score
    */
   private double getF1Score() {
-    return (2 * (getRecall() * getPrecision())) / (getRecall() + getPrecision());
+    Double f1 = (2 * (getRecall() * getPrecision())) / (getRecall() + getPrecision());
+    return (f1.isNaN()) ? 0 : f1.doubleValue();
   }
   
   /**
@@ -188,7 +196,8 @@ public class Trainer {
    * @return the precision value
    */
   private double getPrecision() {
-    return TP / (TP + FN);
+    Double precision = (double)TP / (TP + FN);
+    return (precision.isNaN()) ? 0 : precision.doubleValue();
   }
   
   /**
@@ -196,6 +205,7 @@ public class Trainer {
    * @return the recall value
    */
   private double getRecall() {
-    return TP / (TP + FP);
+    Double recall = (double)TP / (TP + FP);
+    return (recall.isNaN()) ? 0 : recall.doubleValue();
   }
 }
