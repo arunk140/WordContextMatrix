@@ -23,6 +23,7 @@ public class Trainer {
   
   private Classifier model;
   private int samplesSeen;
+  private int testSamplesSeen;
   private int correctlyPredicted;
   private long evaluateStartTime;
   private Object2ObjectOpenHashMap<String, String> wordPolarityMap;
@@ -30,7 +31,7 @@ public class Trainer {
   private InstancesHeader header;
   private BasicClassificationPerformanceEvaluator evaluator;
   
-  private int queryCounter;
+  private int queryCounter; // To count the number of total instances seen before displaying stats.
   private int TP;
   private int TN;
   private int FP;
@@ -75,6 +76,8 @@ public class Trainer {
       
       processed++;
     }
+    
+    ((SGD)model).prepareForUse();
   }
   
   /**
@@ -103,10 +106,7 @@ public class Trainer {
       double[] prediction = model.getVotesForInstance(inst);
       if (trainTestMap.get(word).equals("train")) {
         ((SGD)model).trainOnInstance(inst);
-      } else { // The learner is to test this one
-        /*if (((SGD)model).correctlyClassifies(inst)) {
-          correctlyPredicted++;
-        }*/
+      } else {
         if (Utils.maxIndex(prediction) == (int)inst.classValue()) {
           correctlyPredicted++;
           if ((int) inst.classValue() == 0) {
@@ -114,37 +114,30 @@ public class Trainer {
           } else {
             TP++;
           }
-        }
-        // Else update the false numbers
-        else {
+        } else {
           if (Utils.maxIndex(prediction) == 1) {
             FP++;
           } else {
             FN++;
           }
         }
+        testSamplesSeen++;
       }
       
-      //evaluator.addResult((Example)inst, prediction);
-      samplesSeen++;
+      //evaluator.addResult(inst, prediction);
+
       queryCounter++;
+      samplesSeen++;
+  
       if (queryCounter == 10000) {
-        System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+ " " + Utils.maxIndex(prediction));
+        System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
+            " " + Utils.maxIndex(prediction) + "\n TP: " + TP + " FP: " + FP + "\n TN: " + TN +
+            " FN: " + FN + "\n F1: " + getF1Score() + " Precision: " + getPrecision() +
+            " Recall: " + getRecall());
         QueryAccuracy();
         queryCounter = 0;
       }
     }
-  }
-  
-  /**
-   * Prints the current accuracy of the classifier and the time that has elapsed since the start.
-   */
-  public void QueryAccuracy() {
-    //evaluator.getPerformanceMeasurements();
-    //System.err.println(evaluator.getFractionCorrectlyClassified());
-    double accuracy = 100.0D * (double)this.correctlyPredicted / (double)this.samplesSeen;
-    double time = TimingUtils.nanoTimeToSeconds(TimingUtils.getNanoCPUTimeOfCurrentThread() - this.evaluateStartTime);
-    System.out.println(this.samplesSeen + " instances processed with " + accuracy + "% accuracy in " + time + " seconds.");
   }
   
   /**
@@ -161,5 +154,48 @@ public class Trainer {
         inst.setClassValue(0);
       }
     }
+  }
+  
+  
+  
+  // Additional statistics and helper methods
+  
+  
+  
+  /**
+   * Prints the current accuracy of the classifier and the time that has elapsed since the start.
+   */
+  public void QueryAccuracy() {
+    //evaluator.getPerformanceMeasurements();
+    //System.err.println(evaluator.getFractionCorrectlyClassified());
+    double accuracy = 100.0D * (double)this.correctlyPredicted / (double)this.testSamplesSeen;
+    double time = TimingUtils.nanoTimeToSeconds(TimingUtils.getNanoCPUTimeOfCurrentThread() -
+        this.evaluateStartTime);
+    System.out.println(this.testSamplesSeen + " instances processed with " + accuracy +
+        "% accuracy in " + time + " seconds.");
+  }
+  
+  /**
+   * Calculates the current F1 score
+   * @return the F1 score
+   */
+  private double getF1Score() {
+    return (2 * (getRecall() * getPrecision())) / (getRecall() + getPrecision());
+  }
+  
+  /**
+   * Calculates the current precision
+   * @return the precision value
+   */
+  private double getPrecision() {
+    return TP / (TP + FN);
+  }
+  
+  /**
+   * Calculates the recall (AKA sensitivity)
+   * @return the recall value
+   */
+  private double getRecall() {
+    return TP / (TP + FP);
   }
 }

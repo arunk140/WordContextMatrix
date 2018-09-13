@@ -85,8 +85,9 @@ public class MainRunner {
     // Read in the lexicon and give it to the trainer.
     Trainer trainer = new Trainer(evaluateStartTime);
     trainer.Initialize(seedLex);
-    //System.err.println("Vocab size: " + params.get(0) + " Context size: " + params.get(1) +
-    // " Window size: " + params.get(2));
+    System.err.println("Vocab size: " + params.get(0) + " Context size: " + params.get(1) +
+     " Window size: " + params.get(2) + " Sketching method: " + sketch + " Weighting method: " +
+        weight);
     
     WordContextMatrix wcm = new WordContextMatrix(params.get(0), params.get(1),
         params.get(2), inputStream, trainer);

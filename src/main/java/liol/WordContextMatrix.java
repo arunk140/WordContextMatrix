@@ -9,7 +9,9 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
+import javax.lang.model.element.UnknownElementException;
 import java.nio.charset.StandardCharsets;
+import java.rmi.UnexpectedException;
 import java.security.InvalidParameterException;
 import java.util.Collections;
 import java.util.Arrays;
@@ -47,6 +49,8 @@ public class WordContextMatrix {
   boolean isNormalized;
   boolean isPPMI;
   boolean isHashing;
+  
+  private Object2IntMap<String> contextBinCounts;
   
   /**
    * The constructor. Initializing the WCM.
@@ -94,9 +98,15 @@ public class WordContextMatrix {
     for (String word: wr.contextDictionary.keySet()) {
       // If the word isn't unk
       if (contextWordIndices.containsKey(word)) {
-        contextWordList.add(new Words(contextWordIndices.getInt(word), wr.contextDictionary.getInt(word)));
+        contextWordList.add(new Words(contextWordIndices.getInt(word),
+            wr.contextDictionary.getInt(word)));
       } else {
-        contextWordList.add(new Words(contextWordIndices.getInt("unk"), wr.contextDictionary.getInt(word)));
+        if (isHashing) {
+          throw new UnknownElementException(null, word);
+        } else {
+          contextWordList.add(new Words(contextWordIndices.getInt("unk"),
+              wr.contextDictionary.getInt(word)));
+        }
       }
     }
 		
@@ -120,7 +130,7 @@ public class WordContextMatrix {
     if (isNormalized && !isPPMI) {
       attribValues = normalizer(attributeValues);
     } else if (isPPMI && !isNormalized) {
-      attribValues = PMIzer(wr, attributeValues);
+      attribValues = PPMIzer(wr, attributeValues);
     } else {
       attribValues = unboxer(attributeValues);
     }
@@ -162,6 +172,7 @@ public class WordContextMatrix {
         break;
       case 1:
         this.isHashing = true;
+        prepareForHashing();
         break;
       default:
         throw new InvalidParameterException();
@@ -193,44 +204,52 @@ public class WordContextMatrix {
 			// Build the window
 			for (int i = 0; i < tokens.size() - 1; i++) {
 				int sliceStart = (i - this.windowSize >= 0) ? i - this.windowSize : 0;
-				int sliceEnd = (i + this.windowSize + 1 >= tokens.size()) ? tokens.size() : i + this.windowSize + 1;
+				int sliceEnd = (i + this.windowSize + 1 >= tokens.size()) ?
+            tokens.size() : i + this.windowSize + 1;
 				List<String> window = tokens.subList(sliceStart, sliceEnd);
 				
 				WordRep focusWord = setFocusWord(tokens.get(i));
 				
 				// Update Context
-        if (!isHashing) {
+        if (isHashing) {
+          for (String word : window) {
+            int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
+            //System.err.println(word + ": " + binId);
+            if (!word.equals(focusWord.getWord())) {
+              // Increment the binId in the context map.
+              focusWord.addToContext("contextbin" + binId);
+            } else if (isPPMI) { // for PPMI
+              contextBinCounts.put("contextbin" + binId,
+                  contextBinCounts.getInt("contextbin" + 1) + 1);
+            }
+          }
+        } else {
           for (String word : window) {
             if (!contextWordIndices.containsKey(word) && contextWordIndices.size() < contextSize) {
               addToContextWordIndices(word);
             }
-            if (!contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize && !word.equals(focusWord.getWord()) ||
-                focusWord.equals("unk") && !contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize) {
+            if (!contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize &&
+                !word.equals(focusWord.getWord()) || focusWord.equals("unk") &&
+                !contextWordIndices.containsKey(word) && contextWordIndices.size() == contextSize) {
               focusWord.addToContext("unk");
             } else if (!word.equals(focusWord.getWord())) {
               focusWord.addToContext(word);
             }
           }
-        } else if (isHashing) {
-          for (String word : window) {
-            if (!word.equals(focusWord.getWord())) {
-              int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
-              // Increment the binId in the context map.
-            }
-          }
         }
         
-        
 				focusWord.incrementTweets();
+
         //masterCtxChecker(); // Check that the context map is correct
-				Instance sprseFocus = SparseCreator(focusWord);
-        InstancesHeader instHeader = createInstanceHeader();
-        sprseFocus.setDataset(instHeader);
-        
-        //System.err.println(focusWord.getWord() + " " + sprseFocus.toString());
         
         // If the word has been seen a significant (10) number of times, send it to be classified.
         if (focusWord.numTweets >= 10) {
+          // Moved in here to save processing unnecessary words
+          Instance sprseFocus = SparseCreator(focusWord);
+          InstancesHeader instHeader = createInstanceHeader();
+          sprseFocus.setDataset(instHeader);
+          //System.err.println(focusWord.getWord() + " " + sprseFocus.toString());
+          
         	trainer.SetHeader(instHeader);
           trainer.Learn(focusWord.getWord(), sprseFocus);
         }
@@ -275,7 +294,20 @@ public class WordContextMatrix {
 			nextPos++;
 		}
 	}
-
+  
+  /**
+   * For use with the hashing implementation, we don't need to worry about the words, just the bins.
+   * Populates the context word indices map with the names of the bins.
+   */
+	private void prepareForHashing() {
+    this.contextBinCounts = new Object2IntOpenHashMap<>();
+	  // Initialize the context word indices for hashing.
+	  for (int i = 0; i < contextSize; i++) {
+	    contextWordIndices.put("contextbin" + i, i);
+	    contextBinCounts.put("contextbin" + i, 0);
+    }
+  }
+	
   /**
    * Creates a MOA instances header with two class options and a size that
    * holds contextSize attributes.
@@ -290,7 +322,11 @@ public class WordContextMatrix {
 		classLabels.add("positive");
 
     for (int i = 0; i < contextSize; i++) {
-      attributes.add(new Attribute("context" + (i + 1)));
+      if(isHashing) {
+        attributes.add(new Attribute("contextbin" + (i + 1)));
+      } else {
+        attributes.add(new Attribute("context" + (i + 1)));
+      }
     }
   
     attributes.add(new Attribute("class", classLabels));
@@ -300,6 +336,9 @@ public class WordContextMatrix {
     return header;
   }
   
+  /**
+   * Checks the master context dictionary's content.
+   */
   private void masterCtxChecker() {
     for (String key : contextWordIndices.keySet()) {
       System.err.println(key + " : " + contextWordIndices.getInt(key));
@@ -308,6 +347,7 @@ public class WordContextMatrix {
   
   /**
    * Unboxes a Double array to its primitive form.
+   * Done because as far as I'm aware, there is no way to do this for an array of Doubles in Java.
    * @param attribs The Double array (array of boxed doubles)
    * @return An unboxed primitive double array
    */
@@ -339,7 +379,7 @@ public class WordContextMatrix {
    * Converts a Double array into a normalized double array but ignores the presence of unknown
    * words.
    * @param attribs The Double array of attribute values
-   * @param indexes The index
+   * @param indexes The index array of the attribute values
    * @return A normalized double array
    */
 	private double[] normalizerIgnUnk(Double[] attribs, int[] indexes) {
@@ -363,10 +403,11 @@ public class WordContextMatrix {
 	 * @param attribs The Double array of attribute values
 	 * @return A PMI'd double array
 	 */
-	private double[] PMIzer(WordRep wr, Double[] attribs) {
+	private double[] PPMIzer(WordRep wr, Double[] attribs) {
 		double[] PMIAttribs = new double[attribs.length];
     for (int i = 0; i < attribs.length; i++) {
-      int contextWordCount = vocabulary.get(attribs[i]).numTweets;
+      int contextWordCount = (isHashing) ?
+          contextBinCounts.getInt(attribs[i]) : vocabulary.get(attribs[i]).numTweets;
       double pmiRes = (attribs[i] * tokensSeen) / (wr.numTweets * contextWordCount);
       // Log base 2
       double res = Math.log(pmiRes) / Math.log(2);
@@ -382,10 +423,9 @@ public class WordContextMatrix {
    * @return Int result of hashing the byte array rep of the word
    */
   private int jenkinsHash(byte[] key) {
-//	  byte[] key = contextWord.getBytes(StandardCharsets.UTF_8);
 	  int i = 0;
 	  int hash = 0;
-	  while (i != (byte)key.length) {
+	  while (i != key.length) {
 	    hash += key[i++];
 	    hash += hash << 10;
 	    hash ^= hash >> 6;
@@ -398,7 +438,6 @@ public class WordContextMatrix {
   
 	private class WordRep {
 		String word;
-		double polarity;
 		int contextSize;
 		Object2IntMap<String> contextDictionary;
 		Boolean isFull = false;
@@ -425,29 +464,29 @@ public class WordContextMatrix {
 		public void incrementTweets() {
 			numTweets++;
 		}
-		
-		public double getPolarity() {
-			return polarity;
-		}
-		
-		public void setPolarity(double p) {
-			polarity = p;
-		}
-		
-		public void addToContext(String contextWord) {
-			if (contextDictionary.containsKey(contextWord) || isFull) {
-				if (contextDictionary.containsKey(contextWord)) {
-					contextDictionary.put(contextWord, contextDictionary.getInt(contextWord) + 1);
-				} else {
-					contextDictionary.put("unk", contextDictionary.getInt("unk") + 1);
-				}
-			} else if (contextDictionary.size()  + 1 == contextSize) {
-				contextDictionary.put("unk", 1);
-				isFull = true;
-			} else {
-				contextDictionary.put(contextWord, 1);
-			}
-		} 
+    
+    public void addToContext(String contextWord) {
+      if (contextDictionary.containsKey(contextWord) || isFull) {
+        if (contextDictionary.containsKey(contextWord)) {
+          contextDictionary.put(contextWord, contextDictionary.getInt(contextWord) + 1);
+        } else {
+          if (isHashing) {
+            throw new RuntimeException("Assigned context word is out of range");
+          } else {
+            contextDictionary.put("unk", contextDictionary.getInt("unk") + 1);
+          }
+        }
+      } else if (contextDictionary.size() + 1 == contextSize) {
+        if (isHashing) {
+          contextDictionary.put(contextWord, 1);
+        } else {
+          contextDictionary.put("unk", 1);
+        }
+        isFull = true;
+      } else {
+        contextDictionary.put(contextWord, 1);
+      }
+    }
 	}
 	
 	private class Words implements Comparator<Words> {
