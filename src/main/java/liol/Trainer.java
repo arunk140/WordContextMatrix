@@ -134,7 +134,7 @@ public class Trainer {
       queryCounter++;
       samplesSeen++;
   
-      if (queryCounter == 50000) {
+      if (queryCounter == 10000) {
         DecimalFormat df = new DecimalFormat("#.####");
         df.setRoundingMode(RoundingMode.CEILING);
         System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+

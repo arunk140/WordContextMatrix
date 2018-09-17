@@ -50,7 +50,7 @@ public class WordContextMatrix {
   boolean isPPMI;
   boolean isHashing;
   
-  private Object2IntMap<String> contextBinCounts;
+  private Object2IntMap<String> contextBinCounts; // To keep track of the overall bin counts...
   
   /**
    * The constructor. Initializing the WCM.
@@ -99,13 +99,13 @@ public class WordContextMatrix {
       // If the word isn't unk
       if (contextWordIndices.containsKey(word)) {
         contextWordList.add(new Words(contextWordIndices.getInt(word),
-            wr.contextDictionary.getInt(word)));
+            wr.contextDictionary.getInt(word), word));
       } else {
         if (isHashing) {
           throw new UnknownElementException(null, word);
         } else {
           contextWordList.add(new Words(contextWordIndices.getInt("unk"),
-              wr.contextDictionary.getInt(word)));
+              wr.contextDictionary.getInt(word), "unk"));
         }
       }
     }
@@ -128,9 +128,10 @@ public class WordContextMatrix {
     double[] attribValues;
     
     if (isNormalized && !isPPMI) {
-      attribValues = normalizer(attributeValues);
+      attribValues = normalizer0Mean(attributeValues);
     } else if (isPPMI && !isNormalized) {
-      attribValues = PPMIzer(wr, attributeValues);
+      attribValues = PPMIzer(wr, sortedAttribs);
+      attribValues[indexValues.length - 1] = Double.NaN;
     } else {
       attribValues = unboxer(attributeValues);
     }
@@ -244,7 +245,6 @@ public class WordContextMatrix {
         
         // If the word has been seen a significant (10) number of times, send it to be classified.
         if (focusWord.numTweets >= 10) {
-          // Moved in here to save processing unnecessary words
           Instance sprseFocus = SparseCreator(focusWord);
           InstancesHeader instHeader = createInstanceHeader();
           sprseFocus.setDataset(instHeader);
@@ -272,7 +272,11 @@ public class WordContextMatrix {
 		}
 		return fWord;
 	}
-	
+  
+  /**
+   *
+   * @param wr The word representation to add to the vocabulary
+   */
 	private void addToVocab(WordRep wr) {
 		if (this.vocabulary.size() != this.vocabSize && !this.vocabulary.containsKey(wr.word)) {
 			if (this.vocabulary.size() + 1 == this.vocabSize) {
@@ -283,7 +287,11 @@ public class WordContextMatrix {
 			}
 		}
 	}
-	
+  
+  /**
+   * Checks to see if we have space for a new word and if so add it, otherwise add "unk"
+   * @param contextWord The word to add to the context index map
+   */
 	private void addToContextWordIndices(String contextWord) {
 	  if (contextWordIndices.size() == 0) {
 	    contextWordIndices.put("unk", 0);
@@ -376,6 +384,36 @@ public class WordContextMatrix {
 	}
   
   /**
+   * Converts a Double array into a normalized double array
+   * @param attribs The Double array of attribute values
+   * @return A normalized double array
+   */
+  private double[] normalizer0Mean(Double[] attribs) {
+    double[] normalizedAttribs = new double[attribs.length];
+    double sum = 0;
+    
+    for (int i = 0; i < attribs.length - 1; i++) {
+      sum += attribs[i];
+    }
+    double mean = sum / attribs.length;
+    
+    double stddev = 0;
+    for (int i = 0; i < attribs.length - 1; i++) {
+      double diff = attribs[i] - mean;
+      stddev += diff * diff;
+    }
+  
+    stddev /= attribs.length;
+    stddev = Math.sqrt(stddev);
+    
+    for (int i = 0; i < attribs.length; i++) {
+      normalizedAttribs[i] = (attribs[i] - mean) / stddev;
+    }
+    
+    return normalizedAttribs;
+  }
+	
+  /**
    * Converts a Double array into a normalized double array but ignores the presence of unknown
    * words.
    * @param attribs The Double array of attribute values
@@ -403,12 +441,12 @@ public class WordContextMatrix {
 	 * @param attribs The Double array of attribute values
 	 * @return A PMI'd double array
 	 */
-	private double[] PPMIzer(WordRep wr, Double[] attribs) {
-		double[] PMIAttribs = new double[attribs.length];
-    for (int i = 0; i < attribs.length; i++) {
+	private double[] PPMIzer(WordRep wr, Words[] attribs) {
+		double[] PMIAttribs = new double[attribs.length + 1];
+    for (int i = 0; i < attribs.length - 1; i++) {
       int contextWordCount = (isHashing) ?
-          contextBinCounts.getInt(attribs[i]) : vocabulary.get(attribs[i]).numTweets;
-      double pmiRes = (attribs[i] * tokensSeen) / (wr.numTweets * contextWordCount);
+          contextBinCounts.getInt(attribs[i].word) : vocabulary.get(attribs[i].word).numTweets;
+      double pmiRes = (attribs[i].value * tokensSeen) / (wr.numTweets * contextWordCount);
       // Log base 2
       double res = Math.log(pmiRes) / Math.log(2);
       PMIAttribs[i] = max(0.0, res);
@@ -492,16 +530,19 @@ public class WordContextMatrix {
 	private class Words implements Comparator<Words> {
     private Integer idx;
     private double value;
+    private String word;
     
     public Words() {}
     
-    public Words(Integer i, double v) {
+    public Words(Integer i, double v, String w) {
       idx = i;
       value = v;
+      word = w;
     }
     
     public Integer getIdx() { return idx; }
     public double getValue() { return value; }
+    public String getWord() { return word; }
     
     public int compare(Words origWord, Words otherWord) {
       return origWord.getIdx().compareTo(otherWord.getIdx());
