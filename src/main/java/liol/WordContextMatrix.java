@@ -10,8 +10,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
 import javax.lang.model.element.UnknownElementException;
-import java.nio.charset.StandardCharsets;
-import java.rmi.UnexpectedException;
+
 import java.security.InvalidParameterException;
 import java.util.Collections;
 import java.util.Arrays;
@@ -34,24 +33,23 @@ import static java.lang.Double.max;
  * @since 2018-08-30
  */
 public class WordContextMatrix {
-	
-	protected Object2ObjectMap<String, WordRep> vocabulary;
-	protected int processedInstances;
-	
-	private int tokensSeen;
-	private Object2IntMap<String> contextWordIndices;
-	private int nextPos;
-	private int vocabSize;
-	private int contextSize;
-	private int windowSize;
-	private InputObject inObj;
-	private Trainer trainer;
-  boolean isNormalized;
+
+  protected Object2ObjectMap<String, WordRep> vocabulary;
+  protected int processedInstances;
+
+  private int tokensSeen;
+  private Object2IntMap<String> contextWordIndices;
+  private int nextPos;
+  private int vocabSize;
+  private int contextSize;
+  private int windowSize;
+  private InputObject inObj;
+  private Trainer trainer;
   boolean isPPMI;
   boolean isHashing;
-  
+
   private Object2IntMap<String> contextBinCounts; // To keep track of the overall bin counts...
-  
+
   /**
    * The constructor. Initializing the WCM.
    * @param vSize The vocabulary size
@@ -59,27 +57,30 @@ public class WordContextMatrix {
    * @param wSize The window size
    * @param inStream The input stream
    */
-	public WordContextMatrix(int vSize, int cSize, int wSize, InputObject inStream, Trainer trainer) {
-		this.windowSize = wSize;
-		this.vocabSize = vSize;
-		this.contextSize = cSize;
+  public WordContextMatrix(int vSize, int cSize, int wSize, InputObject inStream, Trainer trainer) {
+    this.windowSize = wSize;
+    this.vocabSize = vSize;
+    this.contextSize = cSize;
     // The input stream
-		this.inObj = inStream;
-		this.vocabulary = new Object2ObjectOpenHashMap<>();
-		this.contextWordIndices = new Object2IntOpenHashMap<>();
-		this.nextPos = 1;
-		this.trainer = trainer;
-		
-		// Set the weighting style (default none)
+    this.inObj = inStream;
+    this.vocabulary = new Object2ObjectOpenHashMap<>();
+    this.contextWordIndices = new Object2IntOpenHashMap<>();
+    this.nextPos = 1;
+    this.trainer = trainer;
+
+    // Set the weighting style (default none)
     setWeightingMethod(0);
     // Set the sketching style (default none)
     setSketchingMethod(0);
-	}
-  
+
+    addToVocab("unk");
+    //vocabulary.get("unk").numTweets = 0; // Special case since it's just to put the word there.
+  }
+
   /**
    * Creates a MOA sparse instance from the representation of the word.
    *
-	 * Inner details (that were missing from the original MOA documentation) for the sparse instance:
+   * Inner details (that were missing from the original MOA documentation) for the sparse instance:
    * weight: the instance's weight
    * attributeValues: the vector of attribute values (only the ones to be stored)
    * indexValues: The indices of the values as they would appear in a full vector
@@ -88,13 +89,13 @@ public class WordContextMatrix {
    * @param wr The word representations
    * @return The sparse instance
    */
-	private SparseInstance SparseCreator(WordRep wr) {
-		double weight = 1;
-		Double[] attributeValues = new Double[wr.contextDictionary.size() + 1];
-		int[] indexValues = new int[wr.contextDictionary.size() + 1];
-		
+  private SparseInstance SparseCreator(WordRep wr) {
+    double weight = 1;
+    Double[] attributeValues = new Double[wr.contextDictionary.size() + 1];
+    int[] indexValues = new int[wr.contextDictionary.size() + 1];
+
     List<Words> contextWordList = new ArrayList<>();
-    
+
     for (String word: wr.contextDictionary.keySet()) {
       // If the word isn't unk
       if (contextWordIndices.containsKey(word)) {
@@ -109,65 +110,57 @@ public class WordContextMatrix {
         }
       }
     }
-		
-		Words[] sortedAttribs = new Words[contextWordList.size()];
+
+    Words[] sortedAttribs = new Words[contextWordList.size()];
     sortedAttribs = contextWordList.toArray(sortedAttribs);
     Arrays.sort(sortedAttribs, new Words());
-    
+
     // Add to the two arrays
     for (int i = 0; i < sortedAttribs.length; i++) {
       attributeValues[i] = sortedAttribs[i].value;
       indexValues[i] = sortedAttribs[i].idx;
     }
-    
+
     // Set the class position to be the last one
     indexValues[indexValues.length - 1] = contextSize; // Remember that it's 0 indexed!
     attributeValues[indexValues.length - 1] = Double.NaN;
-    
+
     // Remove the assignment when the if statements are complete
     double[] attribValues;
-    
-    if (isNormalized && !isPPMI) {
-      attribValues = normalizer0Mean(attributeValues);
-    } else if (isPPMI && !isNormalized) {
+
+    if (isPPMI) {
       attribValues = PPMIzer(wr, sortedAttribs);
       attribValues[indexValues.length - 1] = Double.NaN;
     } else {
       attribValues = unboxer(attributeValues);
     }
-    
+
     return new SparseInstance(weight, attribValues, indexValues, wr.contextSize + 1);
-	}
-  
+  }
+
   /**
    * Sets the weighting method
-   * @param methodNumber 0 = none, 1 = normalized, 2 = PPMI
+   * @param methodNumber 0 = none, 1 = PPMI
    */
   public void setWeightingMethod(int methodNumber) {
     switch (methodNumber) {
       case 0:
-        this.isNormalized = false;
         this.isPPMI = false;
         break;
       case 1:
-        this.isNormalized = true;
-        this.isPPMI = false;
-        break;
-      case 2:
-        this.isNormalized = false;
         this.isPPMI = true;
         break;
       default:
         throw new InvalidParameterException();
     }
   }
-  
+
   /**
    * Sets the sketching method
    * @param methodNumber 0 = none, 1 = hashing
    */
   public void setSketchingMethod(int methodNumber) {
-	  switch (methodNumber) {
+    switch (methodNumber) {
       case 0:
         this.isHashing = false;
         break;
@@ -179,49 +172,56 @@ public class WordContextMatrix {
         throw new InvalidParameterException();
     }
   }
-	
+
   /**
    * Builds the matrix of sparse vectors by incrementally updating the word vectors.
    * Does this by tokenizing and pre-processing all the tweets/sentences and then sliding a window
    * across it.
    * Ends by producing a sparse instance and outputting it to an arff file.
    */
-	public void buildMatrix() {
-		String line;
-		
-		System.err.println("Program started...");
-		
-		while((line = inObj.getNextInstance()) != null ) {
-		  processedInstances++;
-		  
-			line = line.toLowerCase();
-			// Tokenize the line
-			List<String> tokens = Twokenize.tokenizeRawTweetText(line);
+  public void buildMatrix() {
+    String line;
 
-			tokensSeen += tokens.size(); // For PPMI among other things
-      
+    System.err.println("Program started...");
+
+    while((line = inObj.getNextInstance()) != null ) {
+      processedInstances++;
+
+      line = line.toLowerCase();
+      // Tokenize the line
+      List<String> tokens = Twokenize.tokenizeRawTweetText(line);
+
+      tokensSeen += tokens.size(); // For PPMI among other things
+
+      // Add to vocab
+      for (String word: tokens) {
+        if (isHashing) {
+          int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
+          contextBinCounts.put("contextbin" + binId, contextBinCounts.getInt("contextbin" + binId) + 1);
+          addToVocab(word);
+        } else {
+          addToVocab(word);
+        }
+      }
+
       //System.err.println(line);
-			
-			// Build the window
-			for (int i = 0; i < tokens.size() - 1; i++) {
-				int sliceStart = (i - this.windowSize >= 0) ? i - this.windowSize : 0;
-				int sliceEnd = (i + this.windowSize + 1 >= tokens.size()) ?
+
+      // Build the window
+      for (int i = 0; i < tokens.size() - 1; i++) {
+        int sliceStart = (i - this.windowSize >= 0) ? i - this.windowSize : 0;
+        int sliceEnd = (i + this.windowSize + 1 >= tokens.size()) ?
             tokens.size() : i + this.windowSize + 1;
-				List<String> window = tokens.subList(sliceStart, sliceEnd);
-				
-				WordRep focusWord = setFocusWord(tokens.get(i));
-				
-				// Update Context
+        List<String> window = tokens.subList(sliceStart, sliceEnd);
+
+        WordRep focusWord = getWordRep(tokens.get(i));
+
+        // Update Context
         if (isHashing) {
           for (String word : window) {
-            int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
-            //System.err.println(word + ": " + binId);
             if (!word.equals(focusWord.getWord())) {
+              int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
               // Increment the binId in the context map.
               focusWord.addToContext("contextbin" + binId);
-            } else if (isPPMI) { // for PPMI
-              contextBinCounts.put("contextbin" + binId,
-                  contextBinCounts.getInt("contextbin" + 1) + 1);
             }
           }
         } else {
@@ -238,84 +238,75 @@ public class WordContextMatrix {
             }
           }
         }
-        
-				focusWord.incrementTweets();
+
+        //focusWord.incrementTweets();
 
         //masterCtxChecker(); // Check that the context map is correct
-        
+
         // If the word has been seen a significant (10) number of times, send it to be classified.
-        if (focusWord.numTweets >= 10) {
+        if (focusWord.numTweets >= 1) {
           Instance sprseFocus = SparseCreator(focusWord);
           InstancesHeader instHeader = createInstanceHeader();
           sprseFocus.setDataset(instHeader);
           //System.err.println(focusWord.getWord() + " " + sprseFocus.toString());
-          
-        	trainer.SetHeader(instHeader);
+
+          trainer.SetHeader(instHeader);
           trainer.Learn(focusWord.getWord(), sprseFocus);
         }
-			}
-			//System.err.println();
-		}
-		System.err.println("Program ran to completion");
-	}
-	
-	private WordRep setFocusWord(String word) {
-		WordRep fWord;
-		// Word already seen
-		if (this.vocabulary.containsKey(word)) {
-			fWord = this.vocabulary.get(word);
-		} else if (this.vocabulary.size() != vocabSize) {
-			fWord = new WordRep(word, this.contextSize);
-			addToVocab(fWord);
-		} else {
-			fWord = vocabulary.get("unk");
-		}
-		return fWord;
-	}
-  
+      }
+      //System.err.println();
+    }
+    System.err.println("Program ran to completion");
+  }
+
   /**
-   *
-   * @param wr The word representation to add to the vocabulary
+   * Returns the word rep for the given word, or if it doesn't exist in the vocab, returns unk
+   * @param word The word to lookup
+   * @return The wordrep for the given word or for unk
    */
-	private void addToVocab(WordRep wr) {
-		if (this.vocabulary.size() != this.vocabSize && !this.vocabulary.containsKey(wr.word)) {
-			if (this.vocabulary.size() + 1 == this.vocabSize) {
-				wr.setWord("unk");
-				this.vocabulary.put("unk", wr);
-			} else {
-				this.vocabulary.put(wr.word, wr);
-			}
-		}
-	}
-  
+  private WordRep getWordRep(String word) {
+    return (this.vocabulary.containsKey(word)) ? this.vocabulary.get(word) : vocabulary.get("unk");
+  }
+
+  /**
+   * Adds a word representation to the vocabulary if it doesn't exist already and the vocab isn't full
+   * @param word The word to add to the vocabulary
+   */
+  private void addToVocab(String word) {
+    if (this.vocabulary.size() != this.vocabSize && !this.vocabulary.containsKey(word)) {
+      this.vocabulary.put(word, new WordRep(word, this.contextSize));
+      this.vocabulary.get(word).incrementTweets();
+    }
+  }
+
   /**
    * Checks to see if we have space for a new word and if so add it, otherwise add "unk"
    * @param contextWord The word to add to the context index map
    */
-	private void addToContextWordIndices(String contextWord) {
-	  if (contextWordIndices.size() == 0) {
-	    contextWordIndices.put("unk", 0);
+  private void addToContextWordIndices(String contextWord) {
+    if (contextWordIndices.size() == 0) {
+      contextWordIndices.put("unk", 0);
     }
     if (this.contextWordIndices.size() != this.contextSize &&
         !this.contextWordIndices.containsKey(contextWord)) {
-			this.contextWordIndices.put(contextWord, nextPos);
-			nextPos++;
-		}
-	}
-  
+      this.contextWordIndices.put(contextWord, nextPos);
+      nextPos++;
+    }
+  }
+
   /**
    * For use with the hashing implementation, we don't need to worry about the words, just the bins.
    * Populates the context word indices map with the names of the bins.
    */
-	private void prepareForHashing() {
+  private void prepareForHashing() {
     this.contextBinCounts = new Object2IntOpenHashMap<>();
-	  // Initialize the context word indices for hashing.
-	  for (int i = 0; i < contextSize; i++) {
-	    contextWordIndices.put("contextbin" + i, i);
-	    contextBinCounts.put("contextbin" + i, 0);
+    // Initialize the context word indices for hashing.
+    for (int i = 0; i < contextSize; i++) {
+      contextWordIndices.put("contextbin" + i, i);
+      contextBinCounts.put("contextbin" + i, 0);
     }
   }
-	
+
   /**
    * Creates a MOA instances header with two class options and a size that
    * holds contextSize attributes.
@@ -325,9 +316,9 @@ public class WordContextMatrix {
   private InstancesHeader createInstanceHeader() {
     ArrayList<Attribute> attributes = new ArrayList<>();
     ArrayList<String> classLabels = new ArrayList<>();
-	
-		classLabels.add("negative");
-		classLabels.add("positive");
+
+    classLabels.add("negative");
+    classLabels.add("positive");
 
     for (int i = 0; i < contextSize; i++) {
       if(isHashing) {
@@ -336,14 +327,14 @@ public class WordContextMatrix {
         attributes.add(new Attribute("context" + (i + 1)));
       }
     }
-  
+
     attributes.add(new Attribute("class", classLabels));
     Instances insts = new Instances("word-context", attributes, 0);
     InstancesHeader header = new InstancesHeader(insts);
     header.setClassIndex(header.numAttributes() - 1);
     return header;
   }
-  
+
   /**
    * Checks the master context dictionary's content.
    */
@@ -352,7 +343,7 @@ public class WordContextMatrix {
       System.err.println(key + " : " + contextWordIndices.getInt(key));
     }
   }
-  
+
   /**
    * Unboxes a Double array to its primitive form.
    * Done because as far as I'm aware, there is no way to do this for an array of Doubles in Java.
@@ -366,84 +357,18 @@ public class WordContextMatrix {
     }
     return d;
   }
-  
+
   /**
-   * Converts a Double array into a normalized double array
+   * Converts a Double array into a double array of PMI values
    * @param attribs The Double array of attribute values
-   * @return A normalized double array
+   * @return A PMI'd double array
    */
-  private double[] normalizer(Double[] attribs) {
-      double[] normalizedAttribs = new double[attribs.length];
-      double max = Collections.max(Arrays.asList(attribs));
-      
-      for (int i = 0; i < attribs.length; i++) {
-				normalizedAttribs[i] = attribs[i] / max;
-      }
-      
-    return normalizedAttribs;
-	}
-  
-  /**
-   * Converts a Double array into a normalized double array
-   * @param attribs The Double array of attribute values
-   * @return A normalized double array
-   */
-  private double[] normalizer0Mean(Double[] attribs) {
-    double[] normalizedAttribs = new double[attribs.length];
-    double sum = 0;
-    
-    for (int i = 0; i < attribs.length - 1; i++) {
-      sum += attribs[i];
-    }
-    double mean = sum / attribs.length;
-    
-    double stddev = 0;
-    for (int i = 0; i < attribs.length - 1; i++) {
-      double diff = attribs[i] - mean;
-      stddev += diff * diff;
-    }
-  
-    stddev /= attribs.length;
-    stddev = Math.sqrt(stddev);
-    
+  private double[] PPMIzer(WordRep wr, Words[] attribs) {
+    double[] PMIAttribs = new double[attribs.length + 1];
     for (int i = 0; i < attribs.length; i++) {
-      normalizedAttribs[i] = (attribs[i] - mean) / stddev;
-    }
-    
-    return normalizedAttribs;
-  }
-	
-  /**
-   * Converts a Double array into a normalized double array but ignores the presence of unknown
-   * words.
-   * @param attribs The Double array of attribute values
-   * @param indexes The index array of the attribute values
-   * @return A normalized double array
-   */
-	private double[] normalizerIgnUnk(Double[] attribs, int[] indexes) {
-    double[] normalizedAttribs = new double[attribs.length];
-    // If the unknown word is in the attribute array let it have no significance
-    for (int i : indexes) {
-      if (i == 0) {
-        attribs[0] = (double) 0;
+      if (!vocabulary.containsKey(attribs[i].word) && !isHashing) {
+        System.err.println(attribs[i].word + ": " + wr.getWord());
       }
-    }
-    double max = Collections.max(Arrays.asList(attribs));
-    for (int i = 0; i < attribs.length; i++) {
-      normalizedAttribs[i] = attribs[i] / max;
-    }
-    
-    return normalizedAttribs;
-  }
-	
-	/**
-	 * Converts a Double array into a double array of PMI values
-	 * @param attribs The Double array of attribute values
-	 * @return A PMI'd double array
-	 */
-	private double[] PPMIzer(WordRep wr, Words[] attribs) {
-		double[] PMIAttribs = new double[attribs.length + 1];
-    for (int i = 0; i < attribs.length - 1; i++) {
       int contextWordCount = (isHashing) ?
           contextBinCounts.getInt(attribs[i].word) : vocabulary.get(attribs[i].word).numTweets;
       double pmiRes = (attribs[i].value * tokensSeen) / (wr.numTweets * contextWordCount);
@@ -454,55 +379,55 @@ public class WordContextMatrix {
 
     return PMIAttribs;
   }
-  
+
   /**
    * Hashes a string (context word) and returns its hash.
    * @param key the byte array of the word
    * @return Int result of hashing the byte array rep of the word
    */
   private int jenkinsHash(byte[] key) {
-	  int i = 0;
-	  int hash = 0;
-	  while (i != key.length) {
-	    hash += key[i++];
-	    hash += hash << 10;
-	    hash ^= hash >> 6;
+    int i = 0;
+    int hash = 0;
+    while (i != key.length) {
+      hash += key[i++];
+      hash += hash << 10;
+      hash ^= hash >> 6;
     }
     hash += hash << 3;
-	  hash ^= hash >> 11;
-	  hash += hash << 15;
-	  return hash;
+    hash ^= hash >> 11;
+    hash += hash << 15;
+    return hash;
   }
-  
-	private class WordRep {
-		String word;
-		int contextSize;
-		Object2IntMap<String> contextDictionary;
-		Boolean isFull = false;
-		int numTweets = 0;
-		
-		public WordRep(String word, Integer maxContextSize) {
-			setWord(word);
-			setContextSize(maxContextSize);
-			this.contextDictionary = new Object2IntOpenHashMap<>();
-		}
-		
-		public String getWord() {
-			return word;
-		}
-		
-		private void setWord(String w) {
-			word = w;
-		}
-		
-		public void setContextSize(int c) {
-			contextSize = c;
-		}
-		
-		public void incrementTweets() {
-			numTweets++;
-		}
-    
+
+  private class WordRep {
+    String word;
+    int contextSize;
+    Object2IntMap<String> contextDictionary;
+    Boolean isFull = false;
+    int numTweets = 0;
+
+    public WordRep(String word, Integer maxContextSize) {
+      setWord(word);
+      setContextSize(maxContextSize);
+      this.contextDictionary = new Object2IntOpenHashMap<>();
+    }
+
+    public String getWord() {
+      return word;
+    }
+
+    private void setWord(String w) {
+      word = w;
+    }
+
+    public void setContextSize(int c) {
+      contextSize = c;
+    }
+
+    public void incrementTweets() {
+      numTweets++;
+    }
+
     public void addToContext(String contextWord) {
       if (contextDictionary.containsKey(contextWord) || isFull) {
         if (contextDictionary.containsKey(contextWord)) {
@@ -525,25 +450,25 @@ public class WordContextMatrix {
         contextDictionary.put(contextWord, 1);
       }
     }
-	}
-	
-	private class Words implements Comparator<Words> {
+  }
+
+  private class Words implements Comparator<Words> {
     private Integer idx;
     private double value;
     private String word;
-    
+
     public Words() {}
-    
+
     public Words(Integer i, double v, String w) {
       idx = i;
       value = v;
       word = w;
     }
-    
+
     public Integer getIdx() { return idx; }
     public double getValue() { return value; }
     public String getWord() { return word; }
-    
+
     public int compare(Words origWord, Words otherWord) {
       return origWord.getIdx().compareTo(otherWord.getIdx());
     }

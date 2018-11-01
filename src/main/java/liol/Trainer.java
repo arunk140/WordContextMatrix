@@ -15,8 +15,6 @@ import moa.evaluation.WindowClassificationPerformanceEvaluator;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 
-import static java.lang.Double.NaN;
-
 /**
  * <h1>Handles the training and maintenance around the classifier and the lexicon</h1>
  *
@@ -48,7 +46,7 @@ public class Trainer {
     this.trainTestMap = new Object2ObjectOpenHashMap<>();
     this.model = new SGD();
     ((SGD)model).resetLearningImpl();
-    ((SGD) model).setLossFunction(1); // hinge/log/squared
+    ((SGD)model).setLossFunction(1); // hinge/log/squared
     evaluator = new WindowClassificationPerformanceEvaluator();
     evaluator.reset();
     queryCounter = 0;
@@ -109,6 +107,7 @@ public class Trainer {
       SetInstanceClass(word, inst);
       
       double[] prediction = model.getVotesForInstance(inst);
+      //System.err.println(Double.toString(prediction[0]) + " " + Double.toString(prediction[1]));
       if (trainTestMap.get(word).equals("train")) {
         ((SGD)model).trainOnInstance(inst);
       } else {
@@ -129,18 +128,20 @@ public class Trainer {
         testSamplesSeen++;
       }
       
-      //evaluator.addResult(inst, prediction);
-
+      InstanceExample eg = new InstanceExample(inst);
+      evaluator.addResult(eg, prediction);
+      ((SGD)model).getVotesForInstance(inst);
+      
       queryCounter++;
       samplesSeen++;
   
-      if (queryCounter == 10000) {
+      if (queryCounter == 50000) {
         DecimalFormat df = new DecimalFormat("#.####");
         df.setRoundingMode(RoundingMode.CEILING);
         System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
             " " + Utils.maxIndex(prediction) + "\n TP: " + TP + " FP: " + FP + "\n TN: " + TN +
             " FN: " + FN + "\n F1: " + df.format(getF1Score()) + "\n Precision: " +
-            df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()));
+            df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()) + "\n Kappa: " + evaluator.getKappaStatistic());
         QueryAccuracy();
         queryCounter = 0;
       }
