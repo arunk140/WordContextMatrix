@@ -83,6 +83,11 @@ fabric.properties
 
 *.iml
 *.idea/
+*.swp
+*~
+*.bak
 
 src/main/data/*
 src/main/resources/*
+
+target/
