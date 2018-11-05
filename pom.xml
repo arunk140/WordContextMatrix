@@ -21,11 +21,24 @@
 
   <developers>
     <developer>
-      <id>waikato</id>
-      <name>Peter Reutemann</name>
-      <url>http://www.cms.waikato.ac.nz/~waikato/</url>
+      <id>TritonJak</id>
+      <name>Tristan Anderson</name>
       <organization>University of Waikato, NZ</organization>
       <organizationUrl>http://www.waikato.ac.nz/</organizationUrl>
+      <roles>
+        <role>initial author</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>fracpete</id>
+      <name>Peter Reutemann</name>
+      <email>fracpete@waikato.ac.nz</email>
+      <url>http://www.cms.waikato.ac.nz/~fracpete/</url>
+      <organization>University of Waikato, CS department</organization>
+      <organizationUrl>http://www.cs.waikato.ac.nz/</organizationUrl>
+      <roles>
+        <role>maven build support</role>
+      </roles>
     </developer>
   </developers>
 
