@@ -1,4 +1,4 @@
-package liol;
+package moa.tasks.liol;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
