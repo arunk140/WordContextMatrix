@@ -1,4 +1,4 @@
-package main.java.liol;
+package liol;
 
 import moa.core.TimingUtils;
 

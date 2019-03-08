@@ -1,4 +1,4 @@
-package main.java.liol;
+package liol;
 
 import java.io.BufferedReader;
 import java.io.FileReader;

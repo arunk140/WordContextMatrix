@@ -1,11 +1,10 @@
-package main.java.liol;
+package liol;
 
 import com.yahoo.labs.samoa.instances.Instance;
 import com.yahoo.labs.samoa.instances.InstancesHeader;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import moa.classifiers.Classifier;
 import moa.classifiers.functions.SGD;
-import moa.core.Example;
 import moa.core.InstanceExample;
 import moa.core.TimingUtils;
 import moa.core.Utils;

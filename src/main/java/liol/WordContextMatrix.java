@@ -1,24 +1,18 @@
-package main.java.liol;
+package liol;
 
 import cmu.arktweetnlp.Twokenize;
-
 import com.yahoo.labs.samoa.instances.*;
-
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
 import javax.lang.model.element.UnknownElementException;
-
 import java.security.InvalidParameterException;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.ArrayList;
 import java.util.List;
-
-import java.lang.Math;
 
 import static java.lang.Double.max;
 
