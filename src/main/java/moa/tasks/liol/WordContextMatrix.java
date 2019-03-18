@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import moa.evaluation.preview.LearningCurve;
 
 import javax.lang.model.element.UnknownElementException;
 import java.security.InvalidParameterException;
@@ -41,6 +42,7 @@ public class WordContextMatrix  {
 	private Trainer trainer;
 	boolean isPPMI;
 	boolean isHashing;
+	LearningCurve lv;
 
 	private Object2IntMap<String> contextBinCounts; // To keep track of the overall bin counts...
 

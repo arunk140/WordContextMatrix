@@ -6,10 +6,13 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import moa.classifiers.Classifier;
 import moa.classifiers.functions.SGD;
 import moa.core.InstanceExample;
+import moa.core.Measurement;
 import moa.core.TimingUtils;
 import moa.core.Utils;
 import moa.evaluation.BasicClassificationPerformanceEvaluator;
+import moa.evaluation.LearningEvaluation;
 import moa.evaluation.WindowClassificationPerformanceEvaluator;
+import moa.evaluation.preview.LearningCurve;
 
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
@@ -38,8 +41,9 @@ public class Trainer  {
 	private int TN;
 	private int FP;
 	private int FN;
+	public LearningCurve lv;
 
-	public Trainer(long startTime) {
+	public Trainer(long startTime, LearningCurve lv) {
 		this.evaluateStartTime = startTime;
 		this.wordPolarityMap = new Object2ObjectOpenHashMap<>();
 		this.trainTestMap = new Object2ObjectOpenHashMap<>();
@@ -49,6 +53,7 @@ public class Trainer  {
 		evaluator = new WindowClassificationPerformanceEvaluator();
 		evaluator.reset();
 		queryCounter = 0;
+		this.lv = lv;
 	}
 
 	/**
@@ -134,7 +139,7 @@ public class Trainer  {
 			queryCounter++;
 			samplesSeen++;
 
-			if (queryCounter == 500) {
+			if (queryCounter == 1) {
 				DecimalFormat df = new DecimalFormat("#.####");
 				df.setRoundingMode(RoundingMode.CEILING);
 				System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
@@ -143,6 +148,14 @@ public class Trainer  {
 						df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()) + "\n Kappa: " + evaluator.getKappaStatistic());
 				QueryAccuracy();
 				queryCounter = 0;
+				try{
+					lv.insertEntry(new LearningEvaluation(new Measurement[]{
+							new Measurement("FP",FP)
+					},evaluator,model));
+				}catch (Exception e){
+					e.printStackTrace();
+				}
+
 			}
 		}
 	}

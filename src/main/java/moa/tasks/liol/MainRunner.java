@@ -5,6 +5,7 @@ import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.IntOption;
 import moa.core.ObjectRepository;
 import moa.core.TimingUtils;
+import moa.evaluation.preview.LearningCurve;
 import moa.tasks.ClassificationMainTask;
 import moa.tasks.TaskMonitor;
 
@@ -57,6 +58,8 @@ public class MainRunner extends ClassificationMainTask {
      * @exception IllegalArgumentException on arguments error.
      * @see IllegalArgumentException
      */
+
+	Trainer trainer;
     public static void main(String[] args) {
         System.err.println(System.getProperty("user.dir"));
         try {
@@ -81,7 +84,7 @@ public class MainRunner extends ClassificationMainTask {
                         throw new IllegalArgumentException("Please use integers to describe parameters.");
                     }
                 }
-                runner.run(seedLex, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]));
+                runner.run(seedLex, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]),null);
             }
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -111,17 +114,20 @@ public class MainRunner extends ClassificationMainTask {
      * @param weight The weighting choice
      */
     private void run(InputObject seedLex, InputObject inputStream, ArrayList<Integer> params,
-                     int sketch, int weight) {
+                     int sketch, int weight, LearningCurve lv) {
 
         boolean preceiseCPUTiming = TimingUtils.enablePreciseTiming();
         long evaluateStartTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
 
         // Read in the lexicon and give it to the trainer.
-        Trainer trainer = new Trainer(evaluateStartTime);
+		trainer = new Trainer(evaluateStartTime, lv);
         trainer.Initialize(seedLex);
-        System.err.println("Vocab size: " + params.get(0) + " Context size: " + params.get(1) +
-                " Window size: " + params.get(2) + " Sketching method: " + sketch + " Weighting method: " +
-                weight);
+        System.err.println(
+        		" Vocab size: " + params.get(0) +
+				" Context size: " + params.get(1) +
+                " Window size: " + params.get(2) +
+				" Sketching method: " + sketch +
+				" Weighting method: " + weight);
 
         WordContextMatrix wcm = new WordContextMatrix(params.get(0), params.get(1),
                 params.get(2), inputStream, trainer);
@@ -138,7 +144,24 @@ public class MainRunner extends ClassificationMainTask {
 
     @Override
     protected Object doMainTask(TaskMonitor taskMonitor, ObjectRepository objectRepository) {
-        return null;
+		ArrayList<Integer> inputParams = new ArrayList<>();
+
+        LearningCurve learningCurve = new LearningCurve("classified instances");
+
+		inputParams.add(0,vocabSizeOption.getValue());
+		inputParams.add(1,contextSizeOption.getValue());
+		inputParams.add(2,windowSizeOption.getValue());
+
+		int sketchOptValue = enableHashing.isSet()?1:0;
+		int weighingOptValue = enablePPMI.isSet()?1:0;
+
+		InputObject seedLex = new InputObject(SeedLexicon.getValue());
+		InputObject inStream = new InputObject(InputFileName.getValue());
+
+		run(seedLex,inStream,inputParams,sketchOptValue,weighingOptValue,learningCurve);
+
+
+		return trainer.lv;
     }
 
     @Override
