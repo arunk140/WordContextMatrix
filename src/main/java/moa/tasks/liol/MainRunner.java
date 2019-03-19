@@ -3,9 +3,13 @@ package moa.tasks.liol;
 import com.github.javacliparser.FileOption;
 import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.IntOption;
+import moa.core.Measurement;
 import moa.core.ObjectRepository;
 import moa.core.TimingUtils;
+import moa.evaluation.LearningEvaluation;
+import moa.evaluation.LearningPerformanceEvaluator;
 import moa.evaluation.preview.LearningCurve;
+import moa.learners.Learner;
 import moa.tasks.ClassificationMainTask;
 import moa.tasks.TaskMonitor;
 
@@ -46,8 +50,15 @@ public class MainRunner extends ClassificationMainTask {
     public IntOption windowSizeOption = new IntOption("windowSizeOption", 'w',
             "Size of the Window",
             4, 1, 5);
+
     public FlagOption enableHashing = new FlagOption("enableHashing", 'h', "Enable Hashing");
     public FlagOption enablePPMI = new FlagOption("enablePPMI", 'p', "Use PPMI");
+
+	public IntOption sampleFrequency = new IntOption("sampleFrequency", 'f',
+			"Sample Frequency",
+			1000, 100, Integer.MAX_VALUE);
+
+	TaskMonitor taskMonitor;
 
     /**
      * This method will call the filter software and then feeds the output into an SGD classifier
@@ -60,6 +71,9 @@ public class MainRunner extends ClassificationMainTask {
      */
 
 	Trainer trainer;
+	static LearningCurve learningCurve;
+
+
     public static void main(String[] args) {
         System.err.println(System.getProperty("user.dir"));
         try {
@@ -84,7 +98,7 @@ public class MainRunner extends ClassificationMainTask {
                         throw new IllegalArgumentException("Please use integers to describe parameters.");
                     }
                 }
-                runner.run(seedLex, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]),null);
+                runner.run(seedLex, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]),null,null, 1000);
             }
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -114,13 +128,13 @@ public class MainRunner extends ClassificationMainTask {
      * @param weight The weighting choice
      */
     private void run(InputObject seedLex, InputObject inputStream, ArrayList<Integer> params,
-                     int sketch, int weight, LearningCurve lv) {
+                     int sketch, int weight, LearningCurve lv, TaskMonitor tm, int sampleFrequency) {
 
         boolean preceiseCPUTiming = TimingUtils.enablePreciseTiming();
         long evaluateStartTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
 
         // Read in the lexicon and give it to the trainer.
-		trainer = new Trainer(evaluateStartTime, lv);
+		trainer = new Trainer(evaluateStartTime, lv, tm, sampleFrequency);
         trainer.Initialize(seedLex);
         System.err.println(
         		" Vocab size: " + params.get(0) +
@@ -146,7 +160,7 @@ public class MainRunner extends ClassificationMainTask {
     protected Object doMainTask(TaskMonitor taskMonitor, ObjectRepository objectRepository) {
 		ArrayList<Integer> inputParams = new ArrayList<>();
 
-        LearningCurve learningCurve = new LearningCurve("classified instances");
+		learningCurve = new LearningCurve("classified instances");
 
 		inputParams.add(0,vocabSizeOption.getValue());
 		inputParams.add(1,contextSizeOption.getValue());
@@ -158,14 +172,20 @@ public class MainRunner extends ClassificationMainTask {
 		InputObject seedLex = new InputObject(SeedLexicon.getValue());
 		InputObject inStream = new InputObject(InputFileName.getValue());
 
-		run(seedLex,inStream,inputParams,sketchOptValue,weighingOptValue,learningCurve);
+		run(seedLex,inStream,inputParams,sketchOptValue,weighingOptValue,learningCurve,taskMonitor,sampleFrequency.getValue());
 
 
-		return trainer.lv;
+		return trainer.learningCurve;
     }
+
+    static void updateCurve(LearningPerformanceEvaluator evaluator, Learner model, int FP){
+		learningCurve.insertEntry(new LearningEvaluation(new Measurement[]{
+				new Measurement("FP",FP)
+		},evaluator,model));
+	}
 
     @Override
     public Class<?> getTaskResultType() {
-        return null;
+        return LearningCurve.class;
     }
 }

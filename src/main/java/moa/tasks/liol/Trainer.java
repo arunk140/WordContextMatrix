@@ -6,13 +6,12 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import moa.classifiers.Classifier;
 import moa.classifiers.functions.SGD;
 import moa.core.InstanceExample;
-import moa.core.Measurement;
 import moa.core.TimingUtils;
 import moa.core.Utils;
 import moa.evaluation.BasicClassificationPerformanceEvaluator;
-import moa.evaluation.LearningEvaluation;
 import moa.evaluation.WindowClassificationPerformanceEvaluator;
 import moa.evaluation.preview.LearningCurve;
+import moa.tasks.TaskMonitor;
 
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
@@ -41,19 +40,35 @@ public class Trainer  {
 	private int TN;
 	private int FP;
 	private int FN;
-	public LearningCurve lv;
+	private int sampleFrequency;
 
-	public Trainer(long startTime, LearningCurve lv) {
+	public LearningCurve learningCurve;
+	public TaskMonitor taskMonitor;
+
+	boolean updateTaskMonitor;
+
+	public Trainer(long startTime, LearningCurve learningCurve, TaskMonitor taskMonitor, int sampleFrequency) {
 		this.evaluateStartTime = startTime;
 		this.wordPolarityMap = new Object2ObjectOpenHashMap<>();
 		this.trainTestMap = new Object2ObjectOpenHashMap<>();
 		this.model = new SGD();
+
+		//
+		if(learningCurve != null) {
+			this.learningCurve = learningCurve;
+			this.taskMonitor = taskMonitor;
+			updateTaskMonitor = true;
+		}else {
+			updateTaskMonitor = false;
+		}
+		this.sampleFrequency = sampleFrequency;
+
 		((SGD)model).resetLearningImpl();
 		((SGD)model).setLossFunction(1); // hinge/log/squared
 		evaluator = new WindowClassificationPerformanceEvaluator();
 		evaluator.reset();
 		queryCounter = 0;
-		this.lv = lv;
+
 	}
 
 	/**
@@ -139,19 +154,26 @@ public class Trainer  {
 			queryCounter++;
 			samplesSeen++;
 
-			if (queryCounter == 1) {
+			if (queryCounter == sampleFrequency) {
 				DecimalFormat df = new DecimalFormat("#.####");
 				df.setRoundingMode(RoundingMode.CEILING);
-				System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
+				System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+ " prob "+prediction[Utils.maxIndex(prediction)] +
 						" " + Utils.maxIndex(prediction) + "\n TP: " + TP + " FP: " + FP + "\n TN: " + TN +
 						" FN: " + FN + "\n F1: " + df.format(getF1Score()) + "\n Precision: " +
 						df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()) + "\n Kappa: " + evaluator.getKappaStatistic());
 				QueryAccuracy();
 				queryCounter = 0;
+
+
 				try{
-					lv.insertEntry(new LearningEvaluation(new Measurement[]{
-							new Measurement("FP",FP)
-					},evaluator,model));
+//					lv.insertEntry(new LearningEvaluation(new Measurement[]{
+//							new Measurement("FP",FP)
+//					},evaluator,model));
+					if(updateTaskMonitor) {
+						MainRunner.updateCurve(evaluator, model, FP);
+						taskMonitor.setLatestResultPreview(learningCurve.copy());
+					}
+
 				}catch (Exception e){
 					e.printStackTrace();
 				}
