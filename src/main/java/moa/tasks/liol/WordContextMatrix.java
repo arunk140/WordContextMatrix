@@ -187,6 +187,8 @@ public class WordContextMatrix {
 
     trainer.setHeader(instHeader);
 
+    System.out.println("Num Instances,Accuracy,TP,FP,TN,FN,F1,Precision,Recall,Kappa,Time");
+
     while((line = inObj.getNextInstance()) != null ) {
       processedInstances++;
 
@@ -225,9 +227,7 @@ public class WordContextMatrix {
           for (String word : window) {
             if (!word.equals(focusWord.getWord())) {
               int binId = Math.abs(jenkinsHash(word.getBytes()) % contextSize);
-//
 //              int binId = Math.abs(defaultStringHash(word) % contextSize);
-
               // Increment the binId in the context map.
               focusWord.addToContext("contextbin" + binId);
             }

@@ -16,7 +16,15 @@ import moa.tasks.TaskMonitor;
 
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
+import java.util.*;
+
+import org.knowm.xchart.*;
+import org.knowm.xchart.style.Styler;
+
+import com.yahoo.labs.samoa.instances.Attribute;
+import com.yahoo.labs.samoa.instances.InstanceImpl;
+import com.yahoo.labs.samoa.instances.Instances;
+import com.yahoo.labs.samoa.instances.Range;
 
 /**
  * <h1>Handles the training and maintenance around the classifier and the lexicon</h1>
@@ -26,7 +34,14 @@ import java.util.ArrayList;
  * @since 2018-08-30
  */
 public class Trainer {
-  
+
+  protected InstancesHeader dataset;
+  private int H;
+  protected Random random;
+  protected double W[][];
+
+  int percentRandomProjection = 10;
+
   private Classifier model;
   private int samplesSeen;
   private int testSamplesSeen;
@@ -36,6 +51,7 @@ public class Trainer {
   private Object2ObjectOpenHashMap<String, String> trainTestMap;
   private InstancesHeader header;
   private BasicClassificationPerformanceEvaluator evaluator;
+  private boolean displayGraph;
   
   private int queryCounter; // To count the number of total instances seen before displaying stats.
   private int TP;
@@ -48,7 +64,15 @@ public class Trainer {
   private LearningCurve learningCurve;
   private TaskMonitor taskMonitor;
   private double lastAcc = 0.00;
-  
+
+    final XYChart chart;
+    final SwingWrapper<XYChart> sw;
+
+    double[] chartY;
+    int chartIndex = 0;
+    Map<String,ArrayList<Double>> chartData;
+    ArrayList<Double> initList;
+
   public Trainer(long startTime, LearningCurve learningCurve, TaskMonitor taskMonitor) {
     this.evaluateStartTime = startTime;
     this.wordPolarityMap = new Object2ObjectOpenHashMap<>();
@@ -56,48 +80,90 @@ public class Trainer {
     this.model = new SGD();
     this.taskMonitor = taskMonitor;
     this.learningCurve = learningCurve;
+    this.displayGraph = false;
 
-    ((SGD)model).resetLearningImpl();
-    ((SGD)model).setLossFunction(1); // hinge/log/squared
-    evaluator = new WindowClassificationPerformanceEvaluator();
+
+    // Chart Vars
+    this.chartY = new double[100];
+    chartData = new HashMap<>();
+    initList = new ArrayList<>();
+    initList.add(0.0);
+
+//    ((SGD)model).resetLearningImpl();
+//    ((SGD)model).setLossFunction(1); // hinge/log/squared
+    evaluator = new BasicClassificationPerformanceEvaluator();
     evaluator.reset();
     queryCounter = 0;
 
     df = new DecimalFormat("#.####");
     df.setRoundingMode(RoundingMode.CEILING);
+
+
+    // Initialize Chart
+    chart = new XYChartBuilder().width(800).height(600).xAxisTitle("Num of Samples").yAxisTitle("Sentiment").build();
+    chart.getStyler().setLegendPosition(Styler.LegendPosition.InsideNE);
+    chart.getStyler().setDefaultSeriesRenderStyle(XYSeries.XYSeriesRenderStyle.Line);
+    chart.getStyler().setYAxisLabelAlignment(Styler.TextAlignment.Left);
+    chart.getStyler().setPlotMargin(0);
+    chart.getStyler().setPlotContentSize(.95);
+    chart.getStyler().setMarkerSize(0);
+    // Display
+    sw = new SwingWrapper<XYChart>(chart);
+//    sw.displayChart();
   }
   
   /**
    * Sets up the known words for the system.
    * @param seedlex The seed lexicon as an input stream.
    */
-  public void initialize(InputObject seedlex) {
+  public void initialize(InputObject seedLexTrain, InputObject seedLexTest) {
     int processed = 0; // Could be a more sophisticated way of doing this.
     String line;
+    String line2;
 
-    ((SGD)model).setLossFunction(1);
+    model.prepareForUse();
 
-    while ((line = seedlex.getNextInstance()) != null) {
-      String[] tokens = line.split("\t");
-  
-      if (Integer.parseInt(tokens[1]) < 0) {
-        wordPolarityMap.put(tokens[0], "negative");
-      } else {
-        wordPolarityMap.put(tokens[0], "positive");
-      }
+    while ((line = seedLexTrain.getNextInstance()) != null) {
+
+        String[] tokens = line.split("\t");
+
+        if (Integer.parseInt(tokens[1]) < 0) {
+          wordPolarityMap.put(tokens[0], "negative");
+        } else {
+          wordPolarityMap.put(tokens[0], "positive");
+        }
+        trainTestMap.put(tokens[0], "train");
+        processed++;
+
       
       // TODO find a way of doing this while keeping the training and testing distributions even
       // Used python to do this...
-      if (processed < 1238) {
-        trainTestMap.put(tokens[0], "train");
-      } else {
-        trainTestMap.put(tokens[0], "test");
-      }
+//      if (processed < 1238) {
+//      } else {
+//        trainTestMap.put(tokens[0], "test");
+//      }
+//      if(tokens[0].equalsIgnoreCase("darkest") || tokens[0].equalsIgnoreCase("brightest")){
+//          trainTestMap.put(tokens[0], "test");
+//      }
       
-      processed++;
     }
-    
-    ((SGD)model).prepareForUse();
+
+    while ((line2 = seedLexTest.getNextInstance()) != null) {
+
+        String[] tokens = line2.split("\t");
+
+        if (Integer.parseInt(tokens[1]) < 0) {
+          wordPolarityMap.put(tokens[0], "negative");
+        } else {
+          wordPolarityMap.put(tokens[0], "positive");
+        }
+
+        trainTestMap.put(tokens[0], "test");
+
+        processed++;
+
+    }
+//    ((SGD)model).prepareForUse();
   }
   
   /**
@@ -106,7 +172,8 @@ public class Trainer {
    */
   public void setHeader(InstancesHeader ih) {
     this.header = ih;
-    model.setModelContext(header);
+
+
   }
   
   /**
@@ -118,19 +185,28 @@ public class Trainer {
   public void learn(String word, Instance inst) {
     //System.err.println(word + ": " + inst.toString());
     // If we know the word, otherwise we ignore it and assume that we haven't seen it.
-    if (wordPolarityMap.containsKey(word)) {
+    //      if(((SGD)model).getLossFunction()==0){
+    //          System.out.println("Loss Function: Hinge");
+    //      }
+    //
+    //      if(((SGD)model).getLossFunction()==1){
+    //          System.out.println("Loss Function: log");
+    //      }
+
+      Instance filteredInstance = filterInstance(inst);
+      if (wordPolarityMap.containsKey(word)) {
       
       // Assign the instance its class
-      setInstanceClass(word, inst);
+      setInstanceClass(word, filteredInstance);
 
-      double[] prediction = model.getVotesForInstance(inst);
+      double[] prediction = model.getVotesForInstance(filteredInstance);
       //System.err.println(Double.toString(prediction[0]) + " " + Double.toString(prediction[1]));
       if (trainTestMap.get(word).equals("train")) {
-        ((SGD)model).trainOnInstance(inst);
+        model.trainOnInstance(filteredInstance);
       } else {
-        if (Utils.maxIndex(prediction) == (int)inst.classValue()) {
+        if (Utils.maxIndex(prediction) == (int)filteredInstance.classValue()) {
           correctlyPredicted++;
-          if ((int) inst.classValue() == 0) {
+          if ((int) filteredInstance.classValue() == 0) {
             TN++;
           } else {
             TP++;
@@ -143,21 +219,61 @@ public class Trainer {
           }
         }
         testSamplesSeen++;
+        InstanceExample eg = new InstanceExample(filteredInstance);
+        evaluator.addResult(eg, prediction);
+
       }
-      
-      InstanceExample eg = new InstanceExample(inst);
-      evaluator.addResult(eg, prediction);
-      ((SGD)model).getVotesForInstance(inst);
-      
+
+
+//      ((SGD)model).getVotesForInstance(inst);
       queryCounter++;
       samplesSeen++;
   
-      if (queryCounter == 500) {
+      if (queryCounter == 100) {
 
-        System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
-            " " + Utils.maxIndex(prediction) + "\n TP: " + TP + " FP: " + FP + "\n TN: " + TN +
-            " FN: " + FN + "\n F1: " + df.format(getF1Score()) + "\n Precision: " +
-            df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()) + "\n Kappa: " + evaluator.getKappaStatistic());
+//        System.err.println(word + " " + wordPolarityMap.get(word) + " " + trainTestMap.get(word)+
+//            " " + Utils.maxIndex(prediction) + " " + prediction[Utils.maxIndex(prediction)] + "\n TP: " + TP + " FP: " + FP + "\n TN: " + TN +
+//            " FN: " + FN + "\n F1: " + df.format(getF1Score()) + "\n Precision: " +
+//            df.format(getPrecision()) + "\n Recall: " + df.format(getRecall()) + "\n Kappa: " + evaluator.getKappaStatistic());
+
+
+          //new double[]{samplesSeen}
+//          chartY[chartIndex]
+
+//          if(false &&
+//                  (trainTestMap.get(word).equals("test") && (word.equalsIgnoreCase("great"))) ||
+//                          (trainTestMap.get(word).equals("test") && (word.equalsIgnoreCase("crazy")))
+//                          ||
+//                          (trainTestMap.get(word).equals("test") && (word.equalsIgnoreCase("nice"))) ||
+//                          (trainTestMap.get(word).equals("test") && (word.equalsIgnoreCase("best"))) ||
+//                          (trainTestMap.get(word).equals("test") && (word.equalsIgnoreCase("happy")))
+
+//          ) {
+//              if(!chartData.containsKey(word)){
+//                  chartData.put(word,(ArrayList<Double>)initList.clone());
+//                  chart.addSeries(word, chartData.get(word));
+//              }
+//    //              if (chart.getSeriesMap().get(word) == null) {
+//    //                  chart.addSeries(word, chartY);
+//    //              }
+//
+//              int predIndex = Utils.maxIndex(prediction);
+//              double newVal = ((prediction[predIndex] * ((predIndex==1)?1:-1)) + (prediction[predIndex==1?0:1]*(((predIndex==1?0:1)==1)?1:-1)))/2.0;
+////              double newVal = prediction[] * (wordPolarityMap.get(word).equals("negative") ? -1 : 1);
+//    //          System.out.println("HATE + "+newVal);
+//    //              chartY[chartIndex] = newVal;
+//              chartData.get(word).add(newVal);
+//              chart.updateXYSeries(word, null, chartData.get(word), null);
+//              if((newVal < 0 && wordPolarityMap.get(word).equalsIgnoreCase("negative")) || (newVal >= 0 && wordPolarityMap.get(word).equalsIgnoreCase("positive"))){
+//                  chart.getSeriesMap().get(word).setLineColor(XChartSeriesColors.BLUE);
+//              }else {
+//                  chart.getSeriesMap().get(word).setLineColor(XChartSeriesColors.RED);
+//              }
+//    //              chartIndex = (chartIndex + 1) % 100;
+//
+//              sw.repaintChart();
+//          }
+
 
 
         if(this.learningCurve != null){
@@ -214,8 +330,10 @@ public class Trainer {
     this.lastAcc = accuracy;
     double time = TimingUtils.nanoTimeToSeconds(TimingUtils.getNanoCPUTimeOfCurrentThread() -
         this.evaluateStartTime);
-    System.out.println(this.testSamplesSeen + " instances processed with " + accuracy +
-        "% accuracy in " + time + " seconds.");
+    System.out.println(this.testSamplesSeen+","+this.lastAcc+","+TP+","+FP+","+TN+","+FN+","+df.format(getF1Score())+","+df.format(getPrecision())+","+df.format(getRecall())+","+evaluator.getKappaStatistic()+","+time);
+
+//    System.out.println(this.testSamplesSeen + " instances processed with " + accuracy +
+//        "% accuracy in " + time + " seconds.");
   }
   
   /**
@@ -244,4 +362,72 @@ public class Trainer {
     Double recall = (double)TP / (TP + FP);
     return (recall.isNaN()) ? 0 : recall.doubleValue();
   }
+
+  private void initializeRandomProjection(Instance instance) {
+    this.random = new Random();
+
+    int d = instance.numAttributes() - 1; // suppose one class attribute
+
+    H = d * percentRandomProjection / 100;
+
+    // initialize ReLU features
+    W = new double[H][d];
+    for(int j = 0; j < H; j++) {
+      for(int k = 0; k < d; k++) {
+        W[j][k] = this.random.nextGaussian();
+      }
+    }
+
+    // initialize instance space
+    Instances ds = new Instances();
+    List<Attribute> v = new ArrayList<Attribute>(H);
+    List<Integer> indexValues = new ArrayList<Integer>(H);
+
+    for(int j = 0; j < H; j++) {
+      v.add(new Attribute("z"+String.valueOf(j)));
+      indexValues.add(j);
+    }
+    v.add(instance.dataset().classAttribute());
+    indexValues.add(H);
+
+
+    ds.setAttributes(v,indexValues);
+    Range r = new Range("start-end");
+    ds.setRangeOutputIndices(r);
+
+
+    dataset = (new InstancesHeader(ds));
+    dataset.setClassIndex(H);
+    model.setModelContext(dataset);
+    ((SGD)model).setLossFunction(1);
+
+  }
+
+  public Instance filterInstance(Instance x) {
+
+
+    if(dataset==null){
+      initializeRandomProjection(x);
+    }
+
+    double z_[] = new double[H+1];
+
+    int d = x.numAttributes() - 1; // suppose one class attribute (at the end)
+
+    for(int k = 0; k < H; k++) {
+      // for each hidden unit ...
+      double a_k = 0.; 								// k-th activation (dot product)
+      for(int j = 0; j < d; j++) {
+        a_k += (x.value(j) * W[k][j]);
+      }
+      z_[k] = (a_k > 0. ? a_k : 0.);				  // <------- can change threshold here
+    }
+    z_[H] = x.classValue();
+
+    Instance z = new InstanceImpl(x.weight(),z_);
+    z.setDataset(dataset);
+
+    return z;
+  }
+
 }

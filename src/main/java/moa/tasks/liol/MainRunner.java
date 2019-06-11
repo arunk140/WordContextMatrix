@@ -1,8 +1,11 @@
 package moa.tasks.liol;
 
+import com.github.javacliparser.ClassOption;
 import com.github.javacliparser.FileOption;
 import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.IntOption;
+import moa.classifiers.functions.SGD;
+import moa.classifiers.Classifier;
 import moa.core.Measurement;
 import moa.core.ObjectRepository;
 import moa.core.TimingUtils;
@@ -33,8 +36,10 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
   private static final long serialVersionUID = 1L;
 
 
-  public FileOption SeedLexicon = new FileOption("SeedLexicon", 'd',
-          "File with the SeedLexicon", null, "txt", true);
+  public FileOption SeedLexiconTrain = new FileOption("SeedLexiconTrain", 'd',
+          "File with the SeedLexicon Train Set", null, "txt", true);
+  public FileOption SeedLexiconTest = new FileOption("SeedLexiconTest", 't',
+          "File with the SeedLexicon Test Set", null, "txt", true);
 
   public FileOption InputFileName = new FileOption("InputFileName", 'o',
           "File with the Input Stream", null, "txt", true);
@@ -55,8 +60,12 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
   public IntOption sampleFrequency = new IntOption("sampleFrequency", 'f',
           "Sample Frequency",
           1000, 100, Integer.MAX_VALUE);
+//
+//  public ClassOption learnerOption = new ClassOption("learner", 'l', "Classifier to train.", Classifier.class,
+//          "functions.SGD");
 
-  Trainer trainer;
+
+    Trainer trainer;
   static LearningCurve learningCurve;
 
 
@@ -74,9 +83,9 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
     System.err.println(System.getProperty("user.dir"));
 
     try {
-      if (args.length != 8) {
-        System.err.println("Usage: [SeedLexicon][InputFileName]" +
-            "[VocabSize][ContextSize][WindowSize][SketchingMethod][WeightingMethod][SampleFrequency]");
+      if (args.length != 9) {
+        System.err.println("Usage: [SeedLexiconTrain][InputFileName]" +
+            "[VocabSize][ContextSize][WindowSize][SketchingMethod][WeightingMethod][SampleFrequency][SeedLexiconTest]");
         System.err.println("Your input: " + Arrays.toString(args));
 //        System.err.println("Your input: " + Arrays.toString(args));
         throw (new IllegalArgumentException());
@@ -85,7 +94,8 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
         MainRunner runner = new MainRunner();
         
         ArrayList<Integer> params = new ArrayList<>();
-        InputObject seedLex = new InputObject(args[0]);
+        InputObject seedLexTrain = new InputObject(args[0]);
+        InputObject seedLexTest = new InputObject(args[8]);
         InputObject inStream = new InputObject(args[1]);
         
         for (int i = 2; i < 6; i++) {
@@ -95,7 +105,7 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
             throw new IllegalArgumentException("Please use integers to describe parameters.");
           }
         }
-        runner.run(seedLex, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]),null,null, Integer.parseInt(args[7]));
+        runner.run(seedLexTrain, seedLexTest, inStream, params, Integer.parseInt(args[5]), Integer.parseInt(args[6]),null,null, Integer.parseInt(args[7]));
       }
     } catch (Exception ex) {
       ex.printStackTrace();
@@ -120,11 +130,11 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
    * Runs the filter software and eventually the classifiers.
    * @param params A list of the parameters for the word context matrix (vocab size, context size,
    *               window size).
-   * @param seedLex The lexicon of known words and their polarities.
+   * @param seedLexTrain The lexicon of known words and their polarities.
    * @param sketch The sketching choice
    * @param weight The weighting choice
    */
-  private void run(InputObject seedLex, InputObject inputStream, ArrayList<Integer> params,
+  private void run(InputObject seedLexTrain,InputObject seedLexTest, InputObject inputStream, ArrayList<Integer> params,
                    int sketch, int weight, LearningCurve learningCurve, TaskMonitor taskMonitor, int sampleFrequency) {
     
     boolean preceiseCPUTiming = TimingUtils.enablePreciseTiming();
@@ -132,7 +142,7 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
     
     // Read in the lexicon and give it to the trainer.
     trainer = new Trainer(evaluateStartTime,learningCurve,taskMonitor);
-    trainer.initialize(seedLex);
+    trainer.initialize(seedLexTrain,seedLexTest);
     System.err.println("Vocab size: " + params.get(0) + " Context size: " + params.get(1) +
      " Window size: " + params.get(2) + " Sketching method: " + sketch + " Weighting method: " +
         weight + " Sample Frequency: "+ sampleFrequency);
@@ -165,10 +175,11 @@ public class MainRunner extends moa.tasks.ClassificationMainTask {
     int sketchOptValue = enableHashing.isSet()?1:0;
     int weighingOptValue = enablePPMI.isSet()?1:0;
 
-    InputObject seedLex = new InputObject(SeedLexicon.getValue());
+    InputObject seedLexTrain = new InputObject(SeedLexiconTrain.getValue());
+    InputObject seedLexTest = new InputObject(SeedLexiconTest.getValue());
     InputObject inStream = new InputObject(InputFileName.getValue());
 
-    run(seedLex,inStream,inputParams,sketchOptValue,weighingOptValue,learningCurve,taskMonitor,sampleFrequency.getValue());
+    run(seedLexTrain,seedLexTest,inStream,inputParams,sketchOptValue,weighingOptValue,learningCurve,taskMonitor,sampleFrequency.getValue());
 
     return learningCurve;
   }
